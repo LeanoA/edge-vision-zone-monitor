@@ -90,3 +90,12 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
   * **Ventajas en Seguridad (ISO 13855):**
     1. *Vector Direccional:* Permite saber si el operario se desplaza hacia la zona de peligro o en paralelo a ella (evitando detener la máquina si camina tangencialmente).
     2. *Coast Mode (Oclusión):* Si un pie queda ocluido durante 2-3 frames por maquinaria o pallets, el paso de predicción mantiene el seguimiento activo sin perder la continuidad ni el estado de seguridad.
+
+### P11: ¿Por qué una arquitectura de Visualización Dual (Vista de Cámara vs Vista Cenital Top-Down BEV)?
+* **Fundamento Técnico:**
+  * **Vista 1: Perspectiva de Cámara con Realidad Aumentada (Overlay $H^{-1}$):**
+    * *Propósito Operativo:* Muestra el video RGB en tiempo real con las zonas $P_{\text{danger}}$ y $P_{\text{release}}$ reproyectadas mediante la homografía inversa $H^{-1}$, junto con las cajas delimitadoras y esqueletos.
+    * *Valor de Ingeniería:* Permite al supervisor en planta validar visualmente qué "ve" el lente: corroborar que se detectan personas y no sombras, verificar la ausencia de oclusiones físicas en el lente (suciedad, cables sueltos) y monitorear la salud del sensor en el espacio de la imagen.
+  * **Vista 2: Vista Cenital Métrica Top-Down (Bird's-Eye View - BEV):**
+    * *Propósito Metrológico:* Genera un lienzo 2D ortogonal del suelo en metros (escala lineal constante $1\text{ m} = N\text{ px}$). Dibuja la máquina, las zonas concéntricas, los operarios rastreados y sus vectores de velocidad $[\dot{X}, \dot{Y}]$.
+    * *Valor Normativo (ISO 13855):* La distancia de seguridad $S = K \times T + C$ es estrictamente métrica y no puede auditarse en píxeles debido a la distorsión proyectiva. La vista BEV permite medir distancias euclidianas reales y verificar la dirección exacta de aproximación hacia el peligro, además de integrarse directamente en gemelos digitales o pantallas HMI/SCADA industriales.
