@@ -1,0 +1,25 @@
+# Registro de Decisiones de Arquitectura (ADR)
+
+Este directorio contiene las decisiones clave de ingeniería y arquitectura adoptadas a lo largo del desarrollo del proyecto.
+
+## Estructura de un ADR
+
+Cada documento debe seguir el formato estándar:
+
+1. **Título y Contexto:** Problema o necesidad técnica identificada.
+2. **Opciones Consideradas:** Alternativas analizadas con sus pros y contras.
+3. **Decisión Tomada:** La solución elegida y los motivos técnicos de la elección.
+4. **Consecuencias e Impacto:** Compensaciones (*trade-offs*), rendimiento y mantenibilidad.
+
+---
+
+## Índice de Decisiones
+
+| ADR ID | Título | Estado | Fecha |
+| :--- | :--- | :--- | :--- |
+| [ADR-001](adr-001-yolo-pose-vs-bbox.md) | Selección de YOLO-Pose vs Bounding Box Centroid para Detección de Incursión | Aceptado | 2026-08-29 |
+| [ADR-002](adr-002-homography-vs-monocular-3d.md) | Proyección Homográfica 2D a Plano Métrico vs Estimación 3D Monocular | Aceptado | 2026-08-29 |
+| [ADR-003](adr-003-onnx-runtime-coreml.md) | Runtime de Inferencia: ONNX Runtime (CoreML Provider) vs PyTorch Nativo | Aceptado | 2026-08-29 |
+| [ADR-004](adr-004-spatial-fsm-hysteresis.md) | Gestión de Oscilaciones Espaciales mediante Spatial FSM + Filtro Kalman | Aceptado | 2026-08-29 |
+| [ADR-005](adr-005-homography-vectorization-geometric-validation.md) | Validación Geométrica Preventiva y Proyección Vectorizada en Homografía Planar | Aceptado | 2026-08-29 |
+| [ADR-006](adr-006-prepared-geometries-dynamic-debounce-bypass.md) | Geometrías Preparadas y Bypass Dinámico de Debounce en FSM de Seguridad (ISO 13855) | Aceptado | 2026-08-30 |

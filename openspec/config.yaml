@@ -1,0 +1,34 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Python 3.10+, YOLOv8/11 Pose (ONNX), ONNX Runtime, OpenCV, NumPy, Shapely
+  Architecture: Industrial Edge AI intrusion detection & dwell monitoring via DLT Homography and Spatial FSM
+  Testing: PyTest (strict_tdd enabled)
+  Style: Strict PEP 484/526 typing, modular design, ISO 13855:2024 compliance
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    guidelines:
+      - Follow existing code patterns and strict typing
+    tdd: true
+    test_command: "pytest tests/"
+  verify:
+    test_command: "pytest tests/"
+    build_command: ""
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+
+testing:
+  strict_tdd: true
