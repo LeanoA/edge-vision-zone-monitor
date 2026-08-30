@@ -35,5 +35,5 @@ Se adopta la **Opción 3** implementada en [`SpatialFSM`](file:///Users/xander/P
 - Salida fail-safe por defecto: `trip = True` en el arranque, ante fallos (`FAULT`), bloqueo manual (`LOCKOUT`) o intrusiones confirmadas.
 
 ## Consecuencias
-- **Cumplimiento ISO 13855:2024:** Protección instantánea ante personas corriendo hacia la máquina sin incrementar el riesgo de falsos positivos en personas trabajando a paso normal.
+- **Alineación con el razonamiento ISO 13855:2024:** Respuesta sin retardo ($N_{\text{confirm}} = 1$) ante aproximaciones que superan la velocidad de aproximación humana típica ($1.6\text{ m/s}$), manteniendo el filtro de falsos positivos en operarios trabajando a paso normal.
 - **Rendimiento Edge Ultraligero:** La evaluación espacial de 10 trabajadores toma menos de $0.05\text{ ms}$.

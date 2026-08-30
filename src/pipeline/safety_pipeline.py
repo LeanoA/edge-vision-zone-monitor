@@ -1,7 +1,7 @@
 """
 src/pipeline/safety_pipeline.py
-End-to-End Safety Pipeline Orchestrator for Edge Safety Guard.
-Compliant with ISO 13855:2024 reaction latency and fail-safe safety integrity.
+End-to-End Safety Pipeline Orchestrator for Vision-Based Restricted Zone Monitoring.
+Inspired by ISO 13855:2024 reaction latency and fail-safe safety integrity.
 """
 
 from dataclasses import dataclass
@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from src.core.kalman_filter import Track
+from src.core.kalman_filter import AnchorSource, PositionEstimate, Track
 from src.core.spatial_fsm import SafetyOutput
 
 if TYPE_CHECKING:
@@ -38,7 +38,9 @@ class PoseDetection:
     """Extracted pose detection containing bounding box, keypoints, and ground anchor."""
     bbox: Tuple[float, float, float, float]  # (x1, y1, x2, y2)
     keypoints: np.ndarray                    # (17, 3) [x, y, conf]
-    anchor: Optional[Tuple[float, float]]    # (u, v) in original frame coords
+    anchor: Optional[Tuple[float, float]] = None  # (u, v) in original frame coords
+    anchor_source: Optional[AnchorSource] = None
+    anchor_confidence: float = 0.0
 
 
 @dataclass
@@ -135,6 +137,69 @@ def unletterbox_point(
     orig_x = (x - pad_x) / scale
     orig_y = (y - pad_y) / scale
     return float(orig_x), float(orig_y)
+
+
+def extract_ground_anchor(
+    keypoints: np.ndarray,
+    bbox: Optional[Tuple[float, float, float, float]] = None,
+    conf_threshold: float = 0.5,
+    scale: float = 1.0,
+    pad_x: float = 0.0,
+    pad_y: float = 0.0,
+    allow_bbox_fallback: bool = True,
+    det_score: float = 1.0,
+) -> Optional[Tuple[Tuple[float, float], AnchorSource, float]]:
+    """
+    Extract ground anchor point with 4-tier graceful degradation hierarchy.
+
+    Tiers:
+    1. ANKLES_DUAL: Both ankles >= conf_threshold -> midpoint, avg conf.
+    2. ANKLE_SINGLE: Exactly one ankle >= conf_threshold -> single ankle, conf * 0.75.
+    3. BBOX_BOTTOM: Both ankles < conf_threshold & allow_bbox_fallback=True & valid bbox ->
+       bottom-center ((x1+x2)/2, y2), det_score * 0.40.
+    4. Dropout: Both ankles < conf_threshold & no bbox/fallback disabled -> None.
+
+    Returns:
+        Tuple of ((u, v), AnchorSource, confidence) in original frame coords, or None.
+    """
+    left_ankle = keypoints[15]
+    right_ankle = keypoints[16]
+
+    left_valid = float(left_ankle[2]) >= conf_threshold
+    right_valid = float(right_ankle[2]) >= conf_threshold
+
+    if left_valid and right_valid:
+        # Tier 1: Dual ankles midpoint
+        mid_x = (float(left_ankle[0]) + float(right_ankle[0])) / 2.0
+        mid_y = (float(left_ankle[1]) + float(right_ankle[1])) / 2.0
+        anchor_pt = unletterbox_point(mid_x, mid_y, scale, pad_x, pad_y)
+        avg_conf = (float(left_ankle[2]) + float(right_ankle[2])) / 2.0
+        return anchor_pt, AnchorSource.ANKLES_DUAL, float(avg_conf)
+    elif left_valid:
+        # Tier 2: Left ankle
+        anchor_pt = unletterbox_point(float(left_ankle[0]), float(left_ankle[1]), scale, pad_x, pad_y)
+        conf = float(left_ankle[2]) * 0.75
+        return anchor_pt, AnchorSource.ANKLE_SINGLE, conf
+    elif right_valid:
+        # Tier 2: Right ankle
+        anchor_pt = unletterbox_point(float(right_ankle[0]), float(right_ankle[1]), scale, pad_x, pad_y)
+        conf = float(right_ankle[2]) * 0.75
+        return anchor_pt, AnchorSource.ANKLE_SINGLE, conf
+    elif allow_bbox_fallback and bbox is not None:
+        # Tier 3: Bounding box bottom-center proxy
+        x1, y1, x2, y2 = bbox
+        bottom_cx = (x1 + x2) / 2.0
+        bottom_cy = y2
+        # Note: if bbox is already in original frame coordinates, no unletterbox is needed;
+        # but if scale/pad are non-trivial and bbox is in letterbox space, it would unletterbox.
+        # Following spec: un-letterbox coordinate mapping applied across all tiers.
+        # If bbox is already passed unletterboxed (or scale=1.0, pad=0.0), unletterbox_point is identity.
+        anchor_pt = unletterbox_point(bottom_cx, bottom_cy, scale, pad_x, pad_y)
+        conf = float(det_score) * 0.40
+        return anchor_pt, AnchorSource.BBOX_BOTTOM, conf
+    else:
+        # Tier 4: Dropout
+        return None
 
 
 def extract_ankle_anchor(
@@ -265,19 +330,31 @@ class SafetyPipeline:
                 kp_data = raw[5:56, idx].reshape(17, 3)
                 kps[:] = kp_data
 
-            anchor = extract_ankle_anchor(
+            # Extract anchor with graceful degradation hierarchy
+            # Passing unletterboxed bbox coords
+            extracted = extract_ground_anchor(
                 kps,
+                bbox=(x1, y1, x2, y2),
                 conf_threshold=self.conf_threshold,
-                scale=scale,
-                pad_x=pad_x,
-                pad_y=pad_y,
+                scale=1.0,  # x1, y1, x2, y2 already unletterboxed
+                pad_x=0.0,
+                pad_y=0.0,
+                allow_bbox_fallback=True,
+                det_score=float(scores[idx]),
             )
+
+            if extracted is not None:
+                anchor, anchor_source, anchor_conf = extracted
+            else:
+                anchor, anchor_source, anchor_conf = None, None, 0.0
 
             detections.append(
                 PoseDetection(
                     bbox=(x1, y1, x2, y2),
                     keypoints=kps,
                     anchor=anchor,
+                    anchor_source=anchor_source,
+                    anchor_confidence=anchor_conf,
                 )
             )
 
@@ -310,22 +387,30 @@ class SafetyPipeline:
             # Stage 3: Keypoint & Detection Extraction
             t0 = time.perf_counter()
             detections = self.parse_detections(model_out, scale, pad_x, pad_y, orig_w, orig_h)
-            # Collect ground anchors for homography projection
-            valid_anchors = [det.anchor for det in detections if det.anchor is not None]
+            # Collect ground anchors and metadata for homography projection
+            valid_detections = [det for det in detections if det.anchor is not None]
             t_kp = (time.perf_counter() - t0) * 1000.0
 
-            # Stage 4: Homography Projection
+            # Stage 4: Homography Projection & PositionEstimate packaging
             t0 = time.perf_counter()
-            if len(valid_anchors) > 0:
-                anchors_arr = np.array(valid_anchors, dtype=np.float64)
+            if len(valid_detections) > 0:
+                anchors_arr = np.array([det.anchor for det in valid_detections], dtype=np.float64)
                 world_positions = self.homography.project_batch(anchors_arr, to_world=True)
+                position_estimates = [
+                    PositionEstimate(
+                        xy_m=(float(world_positions[i, 0]), float(world_positions[i, 1])),
+                        confidence=valid_detections[i].anchor_confidence,
+                        source=valid_detections[i].anchor_source or AnchorSource.ANKLES_DUAL,
+                    )
+                    for i in range(len(valid_detections))
+                ]
             else:
-                world_positions = np.empty((0, 2), dtype=np.float64)
+                position_estimates = []
             t_proj = (time.perf_counter() - t0) * 1000.0
 
             # Stage 5: Multi-Target Kalman Tracking
             t0 = time.perf_counter()
-            active_tracks = self.tracker.update(world_positions)
+            active_tracks = self.tracker.update(position_estimates)
             t_track = (time.perf_counter() - t0) * 1000.0
 
             # Stage 6: Spatial FSM Evaluation

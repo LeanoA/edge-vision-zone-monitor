@@ -1,1 +1,1 @@
-"""Models module for edge-safety-guard."""
+"""Models module for vision-restricted-zone-monitor."""

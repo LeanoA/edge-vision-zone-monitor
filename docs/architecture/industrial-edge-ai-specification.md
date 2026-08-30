@@ -2,11 +2,19 @@
 
 ---
 
-## 1. Marco Normativo y Fundamentos de Seguridad Industrial (ISO 13855:2024)
+## 1. Marco Teórico y Razonamiento de Seguridad Industrial (Inspirado en ISO 13855:2024)
 
-El desarrollo de un Producto Mínimo Viable (MVP) para la supervisión de zonas restringidas mediante visión artificial en el Edge exige un cumplimiento riguroso de los estándares internacionales de seguridad en maquinaria. En entornos industriales automatizados, los sistemas de visión computacional aplicados a la protección de operadores se categorizan como **Dispositivos de Protección Basados en Visión (VBPD, por sus siglas en inglés)**. Estos dispositivos forman parte de los **Equipos de Protección Electrosensibles (ESPE)**, cuya función principal es salvaguardar la integridad humana sin interponer barreras físicas mecánicas.
+> **Definición Formal del Problema:**
+> *Given a video stream from a fixed monocular camera observing an approximately planar floor, estimate the ground-plane position of visible workers, determine whether they enter a configured metric restricted zone, and emit temporally stable intrusion and dwell events while characterizing end-to-end processing latency.*
 
-La norma internacional **ISO 13855:2024** regula el posicionamiento de los resguardos con respecto a las velocidades de aproximación del cuerpo humano, estableciendo las metodologías matemáticas para definir las distancias mínimas de separación que eviten que un trabajador alcance un punto de peligro antes de que la maquinaria logre un estado seguro. A diferencia de la normativa previa, la revisión ISO 13855:2024 introduce modelos de cálculo complejos para aproximaciones dinámicas, considerando variaciones en la posición espacial del riesgo y la dirección no predecible del cuerpo humano.
+> [!CAUTION]
+> **Non-goal:** *This prototype is not a certified safety function and must not be used to stop or control hazardous machinery.*
+> 
+> **Aviso de Alcance y Seguridad Funcional (Disclaimer):**
+> *Experimental vision-based intrusion monitoring system inspired by industrial safety-zone concepts and ISO 13855 safety-distance reasoning. Not a safety-rated protective device.*
+> Este desarrollo es un prototipo experimental de investigación aplicada. No constituye un Equipo de Protección Electrosensible (ESPE) ni un Dispositivo de Protección Basado en Visión (VBPD) certificado funcionalmente bajo IEC 61496, ISO 13849 o IEC 61508. Su propósito es servir como banco de estudio para evaluar latencias de percepción ($t_1$), filtrado métrico planar y dinámicas temporales en el Edge.
+
+La norma internacional **ISO 13855:2024** regula el posicionamiento y dimensionamiento de salvaguardas con respecto a la velocidad de aproximación del cuerpo humano hacia un punto de peligro. Si bien los dispositivos certificados funcionalmente requieren hardware y ciclos de vida normados, la formulación matemática de ISO 13855 provee un marco conceptual riguroso para **razonar sobre presupuestos de latencia (*latency budgets*) y distancias de separación** en sistemas de visión artificial.
 
 Para una aproximación dinámica con dirección humana desconocida, la distancia de separación requerida $S$ (medida en milímetros) se calcula mediante la siguiente formulación estándar:
 
@@ -31,14 +39,58 @@ La norma establece que bajo ninguna circunstancia la distancia $S$ puede ser inf
 
 ## 2. Arquitectura de Sistema y Pipeline de Procesamiento en Tiempo Real
 
-El flujo de procesamiento para el MVP se estructura como un pipeline de baja latencia ejecutado íntegramente de forma local, erradicando la dependencia de la nube para decisiones críticas de seguridad:
+### 2.1 Cadena de Procesamiento Principal (Scope Freeze del MVP)
 
-1. **Ingestión de Video:** Flujos RTSP o sensores de visión decodificados en memoria unificada o VRAM (GStreamer / OpenCV).
-2. **Preprocesamiento y Rectificación:** Corrección de distorsión radial y tangencial (aberraciones de barril/cojín) mediante parámetros intrínsecos de la cámara.
-3. **Inferencia Neuronal:** Detección y estimación de pose cuantitativamente optimizada (`yolo11n-pose` / `yolov8n-pose` en ONNX Runtime / TensorRT).
-4. **Mapeo Espacial Planar:** Transformación de perspectiva mediante matriz de homografía $H \in \mathbb{R}^{3 \times 3}$ que proyecta los tobillos/pies del operario al plano métrico del suelo ($Z=0$).
-5. **Analytics Espacio-Temporales:** Máquina de Estados Finitos (FSM) con histéresis espacial (doble polígono $P_{\text{danger}}$ vs $P_{\text{release}}$) y temporal ($N_{\text{confirm}}$), suavizada con Filtro de Kalman 2D y control de *dwell time*.
-6. **Interfaz de Control Industrial:** Salida por hardware directo (Relé / GPIO) para parada de emergencia, y telemática (Modbus TCP / OPC UA / MQTT JSON) para alertas preventivas y auditoría.
+Para preservar la viabilidad técnica y evitar la dispersión de esfuerzos, el alcance del MVP se estructura de forma lineal y determinista:
+
+```
+Recorded Video / Ingestion
+        ↓
+  Person Pose (YOLO11n-Pose ONNX)
+        ↓
+  Ground Point (Extracción de tobillos)
+        ↓
+  Homography (DLT 2D a coordenadas de planta métrica)
+        ↓
+  Metric Location (Posición X, Y en metros)
+        ↓
+  Spatial Filtering (Filtro de Kalman 2D CV)
+        ↓
+  Restricted-Zone State (Spatial FSM con doble histéresis)
+        ↓
+  Dwell State (Permanencia y acumulación de tiempo en peligro)
+        ↓
+Visualization + Event Log (Dual View y telemetría JSON)
+        ↓
+Latency Profiling (Medición T1 de fin a fin según ISO 13855)
+```
+
+#### Clasificación de Requerimientos y Priorización de Alcance
+
+1. **MVP Obligatorio (Principal):**
+   - Ingestión de video grabado/stream con preprocesamiento letterbox $(640 \times 640)$.
+   - Inferencia con YOLO11n-pose en ONNX Runtime desacoplado.
+   - Extracción de punto de apoyo en suelo a partir del punto medio de tobillos (`left_ankle`, `right_ankle`) con filtrado por confianza.
+   - Mapeo perspectiva a coordenadas métricas reales en metros mediante homografía planar DLT ($Z_w = 0$).
+   - Filtro de suavizado métrico Kalman 2D multiobjeto con estimación de velocidad $(\dot{X}, \dot{Y})$ y mitigación de oclusiones temporales.
+   - Máquina de estados espacial (`SpatialFSM`) con histéresis geográfica concéntrica ($P_{\text{danger}}$ vs $P_{\text{release}}$) e histéresis temporal ($N_{\text{confirm}}$).
+   - Control de permanencia (*dwell time*) con alertas de aproximación, advertencia y violación.
+   - Compositor dual en tiempo real (vista de cámara con overlays + vista cenital métrica Top-Down BEV) y registro de eventos JSON.
+   - Medición de latencia de reacción $T_1$ por etapas y métricas de percentiles (p50, p95, p99).
+
+2. **Secundario (Sólo si sobra tiempo):**
+   - Comparación y benchmark de rendimiento PyTorch vs ONNX Runtime.
+   - Evaluación granular de rendimiento con CoreML Execution Provider en Apple Silicon.
+   - Baseline comparativo contra detectores alternativos más compactos.
+
+3. **Fuera de Alcance del MVP (Definitivamente después):**
+   - Despliegue optimizado en GPU NVIDIA GTX 1050 (requiere cuantización PTQ INT8).
+   - Integración nativa con TensorRT y pipelines zero-copy DeepStream.
+   - Adaptaciones para hardware embebido heterogéneo (NVIDIA Jetson Nano/Orin, Raspberry Pi).
+   - Empaquetado en contenedor Docker para distribución industrial.
+   - Fusión sensorial con dispositivos físicos (sensores LiDAR, radares industriales, cortinas fotoeléctricas).
+   - Topología multi-cámara con calibración extrínseca combinada y re-identificación de operarios.
+   - Re-entrenamiento y fine-tuning de modelos en datasets de seguridad específicos.
 
 ---
 

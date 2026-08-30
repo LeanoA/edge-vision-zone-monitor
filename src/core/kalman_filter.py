@@ -1,12 +1,49 @@
 """
 src/core/kalman_filter.py
-Discrete 2D Metric Kalman Filter and Multi-Target Tracker for Industrial Edge Safety.
-Compliant with ISO 13855:2024 kinematic velocity estimation.
+Discrete 2D Metric Kalman Filter and Multi-Target Tracker for Vision-Based Restricted Zone Monitoring.
+Inspired by ISO 13855:2024 kinematic velocity estimation.
 """
 
+from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Sequence, Tuple, Union
 import numpy as np
+
+
+class AnchorSource(str, Enum):
+    """Origin provenance and fidelity classification of a ground position estimate."""
+    ANKLES_DUAL = "ANKLES_DUAL"  # Tier 1: Midpoint of left and right ankles
+    ANKLE_SINGLE = "ANKLE_SINGLE"  # Tier 2: Single detected ankle keypoint
+    BBOX_BOTTOM = "BBOX_BOTTOM"  # Tier 3: Bounding box bottom-center proxy
+    TRACKER_PREDICTED = "TRACKER_PREDICTED"  # Tier 4: Dead reckoning via Kalman prediction
+
+
+@dataclass(frozen=True)
+class PositionEstimate:
+    """
+    Immutable metric ground position estimate with provenance and uncertainty.
+
+    Attributes:
+        xy_m: Metric (X, Y) coordinates on the factory floor plane (meters).
+        confidence: Normalized reliability metric in [0.0, 1.0].
+        source: AnchorSource identifying the data tier.
+        covariance: Optional 2x2 spatial position error covariance matrix (m^2).
+    """
+    xy_m: Tuple[float, float]
+    confidence: float
+    source: AnchorSource
+    covariance: Optional[np.ndarray] = None
+
+    def __post_init__(self) -> None:
+        if not (isinstance(self.xy_m, (tuple, list)) and len(self.xy_m) == 2):
+            raise ValueError(f"xy_m must be a 2-tuple, got {self.xy_m}")
+        if not (0.0 <= float(self.confidence) <= 1.0):
+            raise ValueError(f"confidence must be in [0.0, 1.0], got {self.confidence}")
+        if not isinstance(self.source, AnchorSource):
+            raise ValueError(f"source must be an instance of AnchorSource, got {type(self.source)}")
+        if self.covariance is not None:
+            if not isinstance(self.covariance, np.ndarray) or self.covariance.shape != (2, 2):
+                raise ValueError("covariance must be a 2x2 numpy array if provided.")
 
 
 class TrackState(str, Enum):
@@ -228,18 +265,23 @@ class MetricKalmanFilter:
         self._P = 0.5 * (self._P + self._P.T)
         return self._x.copy()
 
-    def update(self, measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]]) -> np.ndarray:
+    def update(
+        self,
+        measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]],
+        R: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """
         Incorporate 2D ground measurement [z_x, z_y] and update state.
 
         Args:
             measurement: Metric coordinates [z_x, z_y] in meters.
+            R: Optional measurement noise covariance override (2x2). Defaults to nominal self._R.
 
         Returns:
             A posteriori corrected state vector [X, Y, vx, vy]^T.
 
         Raises:
-            ValueError: If measurement contains NaN or Inf, or invalid dimensions.
+            ValueError: If measurement contains NaN or Inf, invalid dimensions, or invalid R.
         """
         z = np.asarray(measurement, dtype=np.float64)
         if z.shape != (2,):
@@ -247,16 +289,28 @@ class MetricKalmanFilter:
         if not np.all(np.isfinite(z)):
             raise ValueError("measurement must contain finite real numbers.")
 
+        if R is None:
+            r_mat = self._R
+        else:
+            r_mat = np.asarray(R, dtype=np.float64)
+            if r_mat.shape != (2, 2):
+                raise ValueError("R must have shape (2, 2).")
+            if not np.allclose(r_mat, r_mat.T, atol=1e-7):
+                raise ValueError("R must be symmetric.")
+            eigs = np.linalg.eigvalsh(r_mat)
+            if np.any(eigs < -1e-9):
+                raise ValueError("R must be positive semi-definite.")
+
         # Innovation: y = z - H * x
         y0 = z[0] - self._x[0]
         y1 = z[1] - self._x[1]
         y = np.array([y0, y1], dtype=np.float64)
 
         # Innovation covariance: S = H * P * H^T + R = P[:2, :2] + R
-        s00 = self._P[0, 0] + self._R[0, 0]
-        s01 = self._P[0, 1] + self._R[0, 1]
-        s10 = self._P[1, 0] + self._R[1, 0]
-        s11 = self._P[1, 1] + self._R[1, 1]
+        s00 = self._P[0, 0] + r_mat[0, 0]
+        s01 = self._P[0, 1] + r_mat[0, 1]
+        s10 = self._P[1, 0] + r_mat[1, 0]
+        s11 = self._P[1, 1] + r_mat[1, 1]
         det = s00 * s11 - s01 * s10
 
         if abs(det) < 1e-12:
@@ -279,9 +333,8 @@ class MetricKalmanFilter:
         # Joseph form stabilized covariance update:
         a_mat = self._I.copy()
         a_mat[:, :2] -= k_gain
-        self._P = a_mat @ self._P @ a_mat.T + k_gain @ self._R @ k_gain.T
+        self._P = a_mat @ self._P @ a_mat.T + k_gain @ r_mat @ k_gain.T
         self._P = 0.5 * (self._P + self._P.T)
-
         return self._x.copy()
 
 
@@ -298,6 +351,9 @@ class Track:
         "_missed_count",
         "_state",
         "_filter",
+        "_source",
+        "_confidence",
+        "_last_confirmed_confidence",
     )
 
     def __init__(
@@ -310,6 +366,8 @@ class Track:
         r_pos: float = 0.05,
         n_confirm: int = 2,
         max_missed: int = 5,
+        source: AnchorSource = AnchorSource.ANKLES_DUAL,
+        confidence: float = 1.0,
     ) -> None:
         """
         Initialize track with unique ID and dedicated Kalman filter.
@@ -323,6 +381,8 @@ class Track:
             r_pos: Measurement noise variance.
             n_confirm: Detections required to promote TENTATIVE to CONFIRMED.
             max_missed: Consecutive missed frames allowed before DELETED.
+            source: Initial AnchorSource provenance tier.
+            confidence: Initial confidence scalar in [0.0, 1.0].
         """
         self._track_id: int = int(track_id)
         self._dt: float = float(dt)
@@ -335,6 +395,10 @@ class Track:
         self._state: TrackState = (
             TrackState.CONFIRMED if self._hits >= self._n_confirm else TrackState.TENTATIVE
         )
+
+        self._source: AnchorSource = source
+        self._confidence: float = float(confidence)
+        self._last_confirmed_confidence: float = float(confidence)
 
         self._filter: MetricKalmanFilter = MetricKalmanFilter(
             dt=dt,
@@ -394,16 +458,52 @@ class Track:
         """Underlying MetricKalmanFilter instance."""
         return self._filter
 
+    @property
+    def source(self) -> AnchorSource:
+        """Current origin source of the track's position estimate."""
+        return self._source
+
+    @property
+    def confidence(self) -> float:
+        """Current normalized confidence score [0.0, 1.0]."""
+        return self._confidence
+
+    @property
+    def estimate(self) -> PositionEstimate:
+        """
+        Unified immutable PositionEstimate encapsulating position, confidence,
+        provenance source, and 2x2 ground position error covariance.
+        """
+        cov_2x2 = self._filter.covariance[:2, :2].copy()
+        return PositionEstimate(
+            xy_m=self.position,
+            confidence=self._confidence,
+            source=self._source,
+            covariance=cov_2x2,
+        )
+
     def predict(self, dt: Optional[float] = None) -> np.ndarray:
         """Execute Kalman prediction cycle."""
         self._age += 1
         return self._filter.predict(dt)
 
-    def update(self, measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]]) -> None:
+    def update(
+        self,
+        measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]],
+        source: Optional[AnchorSource] = None,
+        confidence: Optional[float] = None,
+        R: Optional[np.ndarray] = None,
+    ) -> None:
         """Execute Kalman update cycle and update lifecycle metrics."""
-        self._filter.update(measurement)
+        self._filter.update(measurement, R=R)
         self._hits += 1
         self._missed_count = 0
+        if source is not None:
+            self._source = source
+        if confidence is not None:
+            self._confidence = float(confidence)
+            self._last_confirmed_confidence = float(confidence)
+
         if self._state == TrackState.TENTATIVE:
             if self._hits >= self._n_confirm:
                 self._state = TrackState.CONFIRMED
@@ -413,6 +513,9 @@ class Track:
     def mark_missed(self) -> None:
         """Increment missed counter and transition lifecycle to COASTING or DELETED."""
         self._missed_count += 1
+        self._source = AnchorSource.TRACKER_PREDICTED
+        self._confidence = self._last_confirmed_confidence * (0.85 ** self._missed_count)
+
         if self._state == TrackState.TENTATIVE:
             self._state = TrackState.DELETED
         elif self._state in (TrackState.CONFIRMED, TrackState.COASTING):
@@ -573,14 +676,20 @@ class MultiTargetKalmanTracker:
 
     def update(
         self,
-        detections: Union[np.ndarray, List[Tuple[float, float]], Sequence[Sequence[float]]],
+        detections: Union[
+            np.ndarray,
+            Sequence[PositionEstimate],
+            Sequence[Tuple[float, float]],
+            Sequence[Sequence[float]],
+        ],
     ) -> List[Track]:
         """
         Process a new frame of 2D metric ground detections.
         Executes prediction, association, updates, coasting, and birth/death lifecycle.
 
         Args:
-            detections: Array or sequence of (M, 2) metric ground positions in meters.
+            detections: Array or sequence of (M, 2) metric ground positions in meters,
+                or Sequence of PositionEstimate instances.
 
         Returns:
             List of confirmed tracks active in the current frame.
@@ -590,30 +699,51 @@ class MultiTargetKalmanTracker:
         for t in active:
             t.predict(self._dt)
 
-        # Parse detections
-        if detections is None or len(detections) == 0:
-            det_arr = np.empty((0, 2), dtype=np.float64)
-        else:
-            det_arr = np.asarray(detections, dtype=np.float64)
-            if det_arr.ndim == 1 and det_arr.size == 2:
-                det_arr = det_arr.reshape(1, 2)
-            elif det_arr.ndim != 2 or (det_arr.size > 0 and det_arr.shape[1] != 2):
-                raise ValueError("detections must have shape (N, 2).")
+        # Parse detections and provenance metadata
+        parsed_coords: List[Tuple[float, float]] = []
+        parsed_sources: List[AnchorSource] = []
+        parsed_confs: List[float] = []
 
-        num_dets = len(det_arr)
+        if detections is not None and len(detections) > 0:
+            if isinstance(detections[0], PositionEstimate):
+                for d in detections:  # type: ignore
+                    if not isinstance(d, PositionEstimate):
+                        raise ValueError("Mixed detection types not supported; expected PositionEstimate.")
+                    parsed_coords.append(d.xy_m)
+                    parsed_sources.append(d.source)
+                    parsed_confs.append(d.confidence)
+            else:
+                det_arr_in = np.asarray(detections, dtype=np.float64)
+                if det_arr_in.ndim == 1 and det_arr_in.size == 2:
+                    det_arr_in = det_arr_in.reshape(1, 2)
+                elif det_arr_in.ndim != 2 or (det_arr_in.size > 0 and det_arr_in.shape[1] != 2):
+                    raise ValueError("detections must have shape (N, 2).")
+                for row in det_arr_in:
+                    parsed_coords.append((float(row[0]), float(row[1])))
+                    parsed_sources.append(AnchorSource.ANKLES_DUAL)
+                    parsed_confs.append(1.0)
+
+        num_dets = len(parsed_coords)
+        det_arr = (
+            np.array(parsed_coords, dtype=np.float64)
+            if num_dets > 0
+            else np.empty((0, 2), dtype=np.float64)
+        )
 
         if len(active) == 0:
             # Spawn tracks for all incoming detections
             for j in range(num_dets):
                 new_track = Track(
                     track_id=self._next_id,
-                    initial_position=tuple(det_arr[j]),
+                    initial_position=parsed_coords[j],
                     dt=self._dt,
                     q_pos=self._q_pos,
                     q_vel=self._q_vel,
                     r_pos=self._r_pos,
                     n_confirm=self._n_init,
                     max_missed=self._max_missed,
+                    source=parsed_sources[j],
+                    confidence=parsed_confs[j],
                 )
                 self._next_id += 1
                 self._tracks.append(new_track)
@@ -632,9 +762,25 @@ class MultiTargetKalmanTracker:
             track_positions, det_arr
         )
 
+        source_scale_map = {
+            AnchorSource.ANKLES_DUAL: 1.0,
+            AnchorSource.ANKLE_SINGLE: 2.0,
+            AnchorSource.BBOX_BOTTOM: 5.0,
+            AnchorSource.TRACKER_PREDICTED: 1.0,
+        }
+
         # Matched tracks
         for track_idx, det_idx in matches:
-            active[track_idx].update(tuple(det_arr[det_idx]))
+            src = parsed_sources[det_idx]
+            conf = parsed_confs[det_idx]
+            alpha = source_scale_map.get(src, 1.0)
+            r_scaled = np.diag([alpha * self._r_pos, alpha * self._r_pos])
+            active[track_idx].update(
+                parsed_coords[det_idx],
+                source=src,
+                confidence=conf,
+                R=r_scaled,
+            )
 
         # Unmatched tracks coast
         for track_idx in unmatched_track_indices:
@@ -644,13 +790,15 @@ class MultiTargetKalmanTracker:
         for det_idx in unmatched_det_indices:
             new_track = Track(
                 track_id=self._next_id,
-                initial_position=tuple(det_arr[det_idx]),
+                initial_position=parsed_coords[det_idx],
                 dt=self._dt,
                 q_pos=self._q_pos,
                 q_vel=self._q_vel,
                 r_pos=self._r_pos,
                 n_confirm=self._n_init,
                 max_missed=self._max_missed,
+                source=parsed_sources[det_idx],
+                confidence=parsed_confs[det_idx],
             )
             self._next_id += 1
             self._tracks.append(new_track)

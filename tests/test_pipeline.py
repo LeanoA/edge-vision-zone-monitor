@@ -10,8 +10,10 @@ import pytest
 from src.core.kalman_filter import Track
 from src.core.spatial_fsm import SafetyOutput, SafetyState
 from src.pipeline.safety_pipeline import (
+    AnchorSource,
     LayoutMode,
     PipelineResult,
+    PositionEstimate,
     PoseDetection,
     StageLatencies,
 )
@@ -187,6 +189,103 @@ def test_ankle_anchor_extraction_low_confidence_drop():
     assert anchor is None
 
 
+def test_extract_ground_anchor_hierarchy():
+    """Verify 4-tier graceful degradation hierarchy in extract_ground_anchor."""
+    from src.pipeline.safety_pipeline import extract_ground_anchor
+
+    # Scenario 1 (Tier 1 ANKLES_DUAL): Both ankles >= conf_threshold
+    kps = np.zeros((17, 3), dtype=np.float32)
+    kps[15] = [200.0, 400.0, 0.90]  # Left ankle
+    kps[16] = [220.0, 400.0, 0.80]  # Right ankle
+    res = extract_ground_anchor(kps, bbox=(100.0, 100.0, 300.0, 410.0), conf_threshold=0.5)
+    assert res is not None
+    anchor_pt, source, conf = res
+    assert anchor_pt == (pytest.approx(210.0), pytest.approx(400.0))
+    assert source == AnchorSource.ANKLES_DUAL
+    assert conf == pytest.approx(0.85)
+
+    # Scenario 2 (Tier 2 ANKLE_SINGLE): Exactly one ankle >= conf_threshold
+    kps[15] = [195.0, 390.0, 0.80]
+    kps[16] = [220.0, 390.0, 0.20]  # occluded
+    res = extract_ground_anchor(kps, bbox=(100.0, 100.0, 300.0, 410.0), conf_threshold=0.5)
+    assert res is not None
+    anchor_pt, source, conf = res
+    assert anchor_pt == (pytest.approx(195.0), pytest.approx(390.0))
+    assert source == AnchorSource.ANKLE_SINGLE
+    assert conf == pytest.approx(0.80 * 0.75)  # 0.60
+
+    # Scenario 3 (Tier 3 BBOX_BOTTOM): Both ankles < conf_threshold & allow_bbox_fallback=True
+    kps[15] = [195.0, 390.0, 0.15]
+    kps[16] = [220.0, 390.0, 0.10]
+    bbox = (100.0, 50.0, 200.0, 450.0)  # cx = 150, bottom = 450
+    res = extract_ground_anchor(
+        kps,
+        bbox=bbox,
+        conf_threshold=0.5,
+        scale=1.0,
+        pad_x=0.0,
+        pad_y=0.0,
+        allow_bbox_fallback=True,
+        det_score=0.90,
+    )
+    assert res is not None
+    anchor_pt, source, conf = res
+    assert anchor_pt == (pytest.approx(150.0), pytest.approx(450.0))
+    assert source == AnchorSource.BBOX_BOTTOM
+    assert conf == pytest.approx(0.90 * 0.40)  # 0.36
+
+    # Scenario 4 (Tier 4 Dropout): Both ankles occluded & allow_bbox_fallback=False
+    res_no_fallback = extract_ground_anchor(
+        kps,
+        bbox=bbox,
+        conf_threshold=0.5,
+        allow_bbox_fallback=False,
+    )
+    assert res_no_fallback is None
+
+    # Missing bbox with both ankles occluded -> returns None
+    res_no_bbox = extract_ground_anchor(kps, bbox=None, conf_threshold=0.5, allow_bbox_fallback=True)
+    assert res_no_bbox is None
+
+
+def test_extract_ankle_anchor_backward_compatibility():
+    """Verify extract_ankle_anchor maintains unchanged signature and behavior without bbox fallback."""
+    from src.pipeline.safety_pipeline import extract_ankle_anchor
+
+    kps = np.zeros((17, 3), dtype=np.float32)
+    # Both ankles occluded
+    kps[15] = [180.0, 350.0, 0.2]
+    kps[16] = [200.0, 350.0, 0.3]
+    # extract_ankle_anchor signature: (keypoints, conf_threshold=0.5, scale=1.0, pad_x=0.0, pad_y=0.0)
+    assert extract_ankle_anchor(kps) is None
+
+    # Both ankles valid
+    kps[15] = [200.0, 400.0, 0.8]
+    kps[16] = [220.0, 400.0, 0.7]
+    res = extract_ankle_anchor(kps)
+    assert res == (210.0, 400.0)
+
+
+def test_pose_detection_provenance_extension():
+    """Verify PoseDetection dataclass supports optional anchor_source and anchor_confidence."""
+    kps = np.zeros((17, 3), dtype=np.float32)
+    # Positional backward compatibility
+    det_legacy = PoseDetection((10.0, 20.0, 30.0, 40.0), kps, (20.0, 40.0))
+    assert det_legacy.anchor_source is None
+    assert det_legacy.anchor_confidence == 0.0
+
+    # With provenance metadata
+    det_enriched = PoseDetection(
+        bbox=(10.0, 20.0, 30.0, 40.0),
+        keypoints=kps,
+        anchor=(20.0, 40.0),
+        anchor_source=AnchorSource.BBOX_BOTTOM,
+        anchor_confidence=0.36,
+    )
+    assert det_enriched.anchor_source == AnchorSource.BBOX_BOTTOM
+    assert det_enriched.anchor_confidence == 0.36
+
+
 def test_safety_pipeline_orchestration_loop(synthetic_onnx_path, tmp_path):
     """SafetyPipeline coordinates all 6 stages synchronously returning PipelineResult."""
     from src.core.homography import HomographyManager
@@ -335,6 +434,54 @@ def test_safety_pipeline_multi_frame_integration(synthetic_onnx_path):
     # Statistical verification across 30 frames
     mean_latency = float(np.mean(latencies))
     assert mean_latency < 40.0, f"Mean latency {mean_latency}ms exceeds budget"
+
+
+def test_pipeline_occlusion_confidence_propagation(synthetic_onnx_path):
+    """Verify end-to-end metadata propagation of degraded anchors to active tracks."""
+    from unittest.mock import MagicMock
+    from src.core.homography import HomographyManager
+    from src.core.kalman_filter import MultiTargetKalmanTracker
+    from src.core.spatial_fsm import SpatialFSM, ZoneConfig
+    from src.inference.onnx_engine import OnnxEngine
+    from src.pipeline.safety_pipeline import SafetyPipeline
+
+    engine = OnnxEngine(synthetic_onnx_path)
+    # Simple 1:1 image to world mapping
+    img_pts = np.array([[0, 0], [1000, 0], [1000, 1000], [0, 1000]], dtype=np.float64)
+    world_pts = np.array([[0, 0], [10, 0], [10, 10], [0, 10]], dtype=np.float64)
+    homography = HomographyManager(image_points=img_pts, world_points=world_pts)
+    tracker = MultiTargetKalmanTracker(dt=0.0333, n_init=1)
+    zone_cfg = ZoneConfig(
+        name="danger",
+        danger_polygon=[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)],
+    )
+    fsm = SpatialFSM(zone_cfg)
+    pipeline = SafetyPipeline(engine, homography, tracker, fsm)
+
+    # Mock parse_detections returning a BBOX_BOTTOM degraded detection
+    degraded_det = PoseDetection(
+        bbox=(200.0, 100.0, 300.0, 500.0),
+        keypoints=np.zeros((17, 3), dtype=np.float32),
+        anchor=(250.0, 500.0),
+        anchor_source=AnchorSource.BBOX_BOTTOM,
+        anchor_confidence=0.36,
+    )
+    pipeline.parse_detections = MagicMock(return_value=[degraded_det])
+
+    frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    result = pipeline.process_frame(frame)
+
+    assert len(result.detections) == 1
+    assert result.detections[0].anchor_source == AnchorSource.BBOX_BOTTOM
+    assert result.detections[0].anchor_confidence == 0.36
+
+    assert len(result.tracks) == 1
+    track = result.tracks[0]
+    assert track.source == AnchorSource.BBOX_BOTTOM
+    assert track.confidence == 0.36
+    assert track.estimate.source == AnchorSource.BBOX_BOTTOM
+    assert track.estimate.confidence == pytest.approx(0.36)
+    assert track.estimate.covariance is not None
 
 
 

@@ -5,8 +5,10 @@ Geometric calibration, spatial coordinate transformation, and safety zone manage
 
 from src.core.homography import CalibrationConfig, HomographyManager
 from src.core.kalman_filter import (
+    AnchorSource,
     MetricKalmanFilter,
     MultiTargetKalmanTracker,
+    PositionEstimate,
     Track,
     TrackState,
 )
@@ -18,10 +20,12 @@ from src.core.spatial_fsm import (
 )
 
 __all__ = [
+    "AnchorSource",
     "CalibrationConfig",
     "HomographyManager",
     "MetricKalmanFilter",
     "MultiTargetKalmanTracker",
+    "PositionEstimate",
     "Track",
     "TrackState",
     "SpatialFSM",

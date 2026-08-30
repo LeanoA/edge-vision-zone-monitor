@@ -1,10 +1,13 @@
-# Directrices de Seguridad Industrial & Especificación ISO 13855:2024
+# Razonamiento de Distancias de Seguridad y Presupuestos Temporales (Marco ISO 13855:2024)
 
-Este documento reúne las directrices formales de ingeniería, formulación matemática y restricciones de integración física para el sistema **Industrial Edge Safety Guard**.
+> [!CAUTION]
+> **Aviso de Alcance y Seguridad Funcional (Disclaimer):**
+> *Experimental vision-based intrusion monitoring system inspired by industrial safety-zone concepts and ISO 13855 safety-distance reasoning. Not a safety-rated protective device.*
+> Este documento utiliza las ecuaciones y conceptos de la norma ISO 13855:2024 exclusivamente como **marco analítico para modelar el presupuesto de latencia ($T_1$) y dimensionar distancias de separación teóricas**. El software desarrollado es un prototipo experimental y no cuenta con certificación SIL/PL para gobernar circuitos de parada de emergencia en maquinaria industrial sin salvaguardas certificadas.
 
 ---
 
-## 1. Presupuesto Temporal de Seguridad (ISO 13855:2024)
+## 1. Presupuesto Temporal y Modelo de Separación Teórico
 
 En aplicaciones industriales de zonas de peligro asistidas por visión artificial, la distancia mínima de separación de seguridad ($S$) entre el límite de detección y el punto peligroso de la maquinaria está gobernada por:
 

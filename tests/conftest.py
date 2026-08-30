@@ -1,5 +1,5 @@
 """
-Pytest configuration and shared test fixtures for edge-safety-guard.
+Pytest configuration and shared test fixtures for vision-restricted-zone-monitor.
 """
 
 from pathlib import Path

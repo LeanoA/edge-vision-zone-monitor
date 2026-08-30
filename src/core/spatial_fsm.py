@@ -1,7 +1,7 @@
 """
 src/core/spatial_fsm.py
 Spatial Finite State Machine with Dual Hysteresis for Industrial Hazard Safeguarding.
-Compliant with ISO 13855:2024 and IEC 61508 / ISO 13849 fail-safe architecture.
+Inspired by ISO 13855:2024 and IEC 61508 / ISO 13849 fail-safe architecture.
 """
 
 from dataclasses import dataclass, field

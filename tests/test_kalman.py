@@ -7,7 +7,65 @@ Compliant with ISO 13855:2024 kinematic velocity estimation.
 import numpy as np
 import pytest
 
-from src.core.kalman_filter import MetricKalmanFilter
+from src.core.kalman_filter import (
+    AnchorSource,
+    MetricKalmanFilter,
+    PositionEstimate,
+)
+
+
+class TestFoundationContractsAndTypes:
+    """Unit tests for Phase 1: AnchorSource enum and PositionEstimate dataclass."""
+
+    def test_anchor_source_enum_members(self):
+        """Verify AnchorSource enum has required members and string values."""
+        assert AnchorSource.ANKLES_DUAL == "ANKLES_DUAL"
+        assert AnchorSource.ANKLE_SINGLE == "ANKLE_SINGLE"
+        assert AnchorSource.BBOX_BOTTOM == "BBOX_BOTTOM"
+        assert AnchorSource.TRACKER_PREDICTED == "TRACKER_PREDICTED"
+        assert len(AnchorSource) == 4
+
+    def test_position_estimate_valid_instantiation(self):
+        """Verify valid PositionEstimate instantiation and immutability."""
+        cov = np.diag([0.05, 0.05])
+        pe = PositionEstimate(
+            xy_m=(1.2, 3.4),
+            confidence=0.85,
+            source=AnchorSource.ANKLES_DUAL,
+            covariance=cov,
+        )
+        assert pe.xy_m == (1.2, 3.4)
+        assert pe.confidence == 0.85
+        assert pe.source == AnchorSource.ANKLES_DUAL
+        assert pe.covariance is not None
+        np.testing.assert_allclose(pe.covariance, cov)
+
+        # Frozen immutability check
+        with pytest.raises(Exception):
+            pe.confidence = 0.5  # type: ignore
+
+    def test_position_estimate_validation_errors(self):
+        """Verify PositionEstimate validation constraints."""
+        # xy_m must have length 2
+        with pytest.raises(ValueError, match="xy_m must be a 2-tuple"):
+            PositionEstimate(xy_m=(1.0,), confidence=0.8, source=AnchorSource.ANKLES_DUAL)  # type: ignore
+
+        with pytest.raises(ValueError, match="xy_m must be a 2-tuple"):
+            PositionEstimate(xy_m=(1.0, 2.0, 3.0), confidence=0.8, source=AnchorSource.ANKLES_DUAL)  # type: ignore
+
+        # confidence must be in [0.0, 1.0]
+        with pytest.raises(ValueError, match="confidence must be in"):
+            PositionEstimate(xy_m=(1.0, 2.0), confidence=-0.1, source=AnchorSource.ANKLES_DUAL)
+
+        with pytest.raises(ValueError, match="confidence must be in"):
+            PositionEstimate(xy_m=(1.0, 2.0), confidence=1.05, source=AnchorSource.ANKLES_DUAL)
+
+        # covariance must be 2x2 numpy array if provided
+        with pytest.raises(ValueError, match="covariance must be a 2x2 numpy array"):
+            PositionEstimate(xy_m=(1.0, 2.0), confidence=0.5, source=AnchorSource.ANKLES_DUAL, covariance=np.eye(3))
+
+        with pytest.raises(ValueError, match="covariance must be a 2x2 numpy array"):
+            PositionEstimate(xy_m=(1.0, 2.0), confidence=0.5, source=AnchorSource.ANKLES_DUAL, covariance=[[1, 0], [0, 1]])  # type: ignore
 
 
 class TestMetricKalmanFilterKinematics:
@@ -118,6 +176,64 @@ class TestMetricKalmanFilterKinematics:
             kf.update((np.nan, 1.0))
         with pytest.raises(ValueError, match="finite"):
             kf.update((1.0, np.inf))
+
+    def test_update_adaptive_measurement_noise(self):
+        """Verify adaptive measurement noise scaling and backward compatibility."""
+        # 1. Backward compatibility: update without R uses nominal self._R
+        kf_nominal = MetricKalmanFilter(
+            dt=0.0333,
+            r_pos=0.05,
+            initial_position=(0.0, 0.0),
+        )
+        kf_nominal.predict()
+        state_nom = kf_nominal.update((1.0, 1.0))
+
+        # 2. Explicit nominal R matches default update
+        kf_explicit = MetricKalmanFilter(
+            dt=0.0333,
+            r_pos=0.05,
+            initial_position=(0.0, 0.0),
+        )
+        kf_explicit.predict()
+        state_exp = kf_explicit.update((1.0, 1.0), R=np.diag([0.05, 0.05]))
+        np.testing.assert_allclose(state_nom, state_exp)
+
+        # 3. Inflated R (2.0x and 5.0x) attenuates Kalman gain and dampens state innovation update
+        kf_single = MetricKalmanFilter(
+            dt=0.0333,
+            r_pos=0.05,
+            initial_position=(0.0, 0.0),
+        )
+        kf_single.predict()
+        state_single = kf_single.update((1.0, 1.0), R=np.diag([0.10, 0.10]))
+
+        kf_bbox = MetricKalmanFilter(
+            dt=0.0333,
+            r_pos=0.05,
+            initial_position=(0.0, 0.0),
+        )
+        kf_bbox.predict()
+        state_bbox = kf_bbox.update((1.0, 1.0), R=np.diag([0.25, 0.25]))
+
+        # State updates towards (1.0, 1.0) must be strictly ordered: nominal > single > bbox
+        assert state_nom[0] > state_single[0] > state_bbox[0] > 0.0
+        assert state_nom[1] > state_single[1] > state_bbox[1] > 0.0
+
+        # Posterior position error covariance trace must be strictly ordered: nominal < single < bbox
+        trace_nom = np.trace(kf_nominal.covariance[:2, :2])
+        trace_single = np.trace(kf_single.covariance[:2, :2])
+        trace_bbox = np.trace(kf_bbox.covariance[:2, :2])
+        assert trace_nom < trace_single < trace_bbox
+
+        # Invalid R validation
+        with pytest.raises(ValueError, match="R must have shape"):
+            kf_nominal.update((1.0, 1.0), R=np.eye(3))
+        with pytest.raises(ValueError, match="R must be symmetric"):
+            asym_r = np.array([[1.0, 2.0], [0.0, 1.0]])
+            kf_nominal.update((1.0, 1.0), R=asym_r)
+        with pytest.raises(ValueError, match="R must be positive"):
+            neg_r = np.diag([-0.1, -0.1])
+            kf_nominal.update((1.0, 1.0), R=neg_r)
 
     def test_analytical_inverse_and_joseph_form_stabilization(self):
         """Verify analytical 2x2 inverse matches matrix inversion and Joseph form maintains symmetry."""
@@ -313,6 +429,61 @@ class TestTrackLifecycleAndMultiTargetTracker:
         assert track.missed_count == 0
         assert np.trace(track.filter.covariance) < trace_coasting
 
+    def test_track_provenance_and_confidence_decay(self):
+        """Verify Track provenance properties, estimate property, and exponential decay."""
+        track = Track(
+            track_id=1,
+            initial_position=(1.0, 2.0),
+            source=AnchorSource.ANKLES_DUAL,
+            confidence=0.90,
+        )
+        assert track.source == AnchorSource.ANKLES_DUAL
+        assert track.confidence == 0.90
+
+        # Verify estimate property returns PositionEstimate
+        est = track.estimate
+        assert isinstance(est, PositionEstimate)
+        assert est.xy_m == track.position
+        assert est.confidence == 0.90
+        assert est.source == AnchorSource.ANKLES_DUAL
+        assert est.covariance is not None
+        assert est.covariance.shape == (2, 2)
+        np.testing.assert_allclose(est.covariance, track.filter.covariance[:2, :2])
+
+        # Mark missed: Frame 1
+        track.predict()
+        track.mark_missed()
+        assert track.source == AnchorSource.TRACKER_PREDICTED
+        assert track.confidence == pytest.approx(0.90 * 0.85, abs=1e-5)
+
+        # Mark missed: Frame 2
+        track.predict()
+        track.mark_missed()
+        assert track.source == AnchorSource.TRACKER_PREDICTED
+        assert track.confidence == pytest.approx(0.90 * (0.85 ** 2), abs=1e-5)
+
+        # Mark missed: Frame 3
+        track.predict()
+        track.mark_missed()
+        assert track.source == AnchorSource.TRACKER_PREDICTED
+        assert track.confidence == pytest.approx(0.90 * (0.85 ** 3), abs=1e-5)
+
+        # Recovery upon re-detection with ANKLE_SINGLE
+        cov_trace_before_recovery = np.trace(track.filter.covariance[:2, :2])
+        track.predict()
+        track.update(
+            (1.05, 2.05),
+            source=AnchorSource.ANKLE_SINGLE,
+            confidence=0.60,
+            R=np.diag([0.10, 0.10]),
+        )
+        assert track.missed_count == 0
+        assert track.source == AnchorSource.ANKLE_SINGLE
+        assert track.confidence == 0.60
+        assert track.estimate.source == AnchorSource.ANKLE_SINGLE
+        assert track.estimate.confidence == 0.60
+        assert np.trace(track.filter.covariance[:2, :2]) < cov_trace_before_recovery
+
     def test_track_expiration_max_missed(self):
         """Verify track transitions to DELETED when missed_count > max_missed."""
         track = Track(
@@ -415,6 +586,63 @@ class TestTrackLifecycleAndMultiTargetTracker:
         # Next spawned track starts at ID 1
         new_tracks = tracker.update([(0.0, 0.0)])
         assert new_tracks[0].track_id == 1
+
+    def test_tracker_position_estimate_and_adaptive_r(self):
+        """Verify tracker polymorphism with PositionEstimate and source-based R scaling."""
+        tracker = MultiTargetKalmanTracker(n_init=1, r_pos=0.05)
+
+        # 1. Initialize track with ANKLES_DUAL PositionEstimate
+        est_init = PositionEstimate(
+            xy_m=(2.0, 2.0),
+            confidence=0.95,
+            source=AnchorSource.ANKLES_DUAL,
+        )
+        tracks = tracker.update([est_init])
+        assert len(tracks) == 1
+        t = tracks[0]
+        assert t.source == AnchorSource.ANKLES_DUAL
+        assert t.confidence == 0.95
+        assert t.estimate.xy_m == (2.0, 2.0)
+
+        # 2. Update with ANKLE_SINGLE -> scales R by 2.0x
+        est_single = PositionEstimate(
+            xy_m=(2.05, 2.02),
+            confidence=0.70,
+            source=AnchorSource.ANKLE_SINGLE,
+        )
+        tracks = tracker.update([est_single])
+        t = tracks[0]
+        assert t.source == AnchorSource.ANKLE_SINGLE
+        assert t.confidence == 0.70
+
+        # 3. Update with BBOX_BOTTOM -> scales R by 5.0x
+        est_bbox = PositionEstimate(
+            xy_m=(2.10, 2.04),
+            confidence=0.36,
+            source=AnchorSource.BBOX_BOTTOM,
+        )
+        tracks = tracker.update([est_bbox])
+        t = tracks[0]
+        assert t.source == AnchorSource.BBOX_BOTTOM
+        assert t.confidence == 0.36
+
+        # 4. Gating rejection: detection beyond 1.0m is rejected from association
+        est_far = PositionEstimate(
+            xy_m=(3.5, 2.04),  # > 1.0m away from current pos ~ 2.1
+            confidence=0.36,
+            source=AnchorSource.BBOX_BOTTOM,
+        )
+        tracks = tracker.update([est_far])
+        # Track t should coast and transition to TRACKER_PREDICTED
+        assert t.is_coasting()
+        assert t.source == AnchorSource.TRACKER_PREDICTED
+        assert t.confidence == pytest.approx(0.36 * 0.85, abs=1e-5)
+
+        # 5. Backward compatibility: passing raw coordinates uses ANKLES_DUAL and confidence 1.0
+        tracker2 = MultiTargetKalmanTracker(n_init=1)
+        tracks2 = tracker2.update([(1.0, 1.0)])
+        assert tracks2[0].source == AnchorSource.ANKLES_DUAL
+        assert tracks2[0].confidence == 1.0
 
     def test_greedy_association_latency(self):
         """Verify greedy spatial association execution time is < 0.05 ms for 10 targets."""

@@ -17,9 +17,10 @@ Cada documento debe seguir el formato estándar:
 
 | ADR ID | Título | Estado | Fecha |
 | :--- | :--- | :--- | :--- |
-| [ADR-001](adr-001-yolo-pose-vs-bbox.md) | Selección de YOLO-Pose vs Bounding Box Centroid para Detección de Incursión | Aceptado | 2026-08-29 |
+| [ADR-001](adr-001-yolo-pose-vs-bbox.md) | Estimación de Contacto con el Suelo: Ankle Keypoints (YOLO-Pose) vs Bbox Bottom-Center | Aceptado | 2026-08-29 |
 | [ADR-002](adr-002-homography-vs-monocular-3d.md) | Proyección Homográfica 2D a Plano Métrico vs Estimación 3D Monocular | Aceptado | 2026-08-29 |
 | [ADR-003](adr-003-onnx-runtime-coreml.md) | Runtime de Inferencia: ONNX Runtime (CoreML Provider) vs PyTorch Nativo | Aceptado | 2026-08-29 |
 | [ADR-004](adr-004-spatial-fsm-hysteresis.md) | Gestión de Oscilaciones Espaciales mediante Spatial FSM + Filtro Kalman | Aceptado | 2026-08-29 |
 | [ADR-005](adr-005-homography-vectorization-geometric-validation.md) | Validación Geométrica Preventiva y Proyección Vectorizada en Homografía Planar | Aceptado | 2026-08-29 |
 | [ADR-006](adr-006-prepared-geometries-dynamic-debounce-bypass.md) | Geometrías Preparadas y Bypass Dinámico de Debounce en FSM de Seguridad (ISO 13855) | Aceptado | 2026-08-30 |
+| [ADR-007](adr-007-occlusion-handling-confidence-propagation.md) | Gestión de Oclusiones en Extremidades Inferiores y Propagación de Confianza | Aceptado | 2026-08-30 |

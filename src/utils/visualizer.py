@@ -1,6 +1,6 @@
 """
 src/utils/visualizer.py
-Synchronized Dual-Stream Visualization Engine for Edge Safety Guard.
+Synchronized Dual-Stream Visualization Engine for Vision-Based Restricted Zone Monitoring.
 Renders annotated perspective views and orthogonal metric Bird's-Eye Views (BEV).
 """
 

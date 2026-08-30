@@ -1,1 +1,1 @@
-"""Scripts package for edge-safety-guard."""
+"""Scripts package for vision-restricted-zone-monitor."""

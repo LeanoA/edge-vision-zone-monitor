@@ -1,7 +1,7 @@
 """
 src/core/homography.py
-Planar Homography and Metric Calibration Management for Edge Safety Guard.
-Compliant with ISO 13855:2024 metric safety positioning.
+Planar Homography and Metric Calibration Management for Vision-Based Restricted Zone Monitoring.
+Inspired by ISO 13855:2024 metric safety positioning.
 """
 
 from dataclasses import dataclass

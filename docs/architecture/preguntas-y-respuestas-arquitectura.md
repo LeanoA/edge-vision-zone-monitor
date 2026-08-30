@@ -51,12 +51,17 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
     $$4\text{ puntos} \times 2\text{ ecuaciones/punto} = 8\text{ ecuaciones}$$
   * Con **4 puntos de referencia coplanares (no colineales)** marcados en el suelo, el algoritmo DLT (*Direct Linear Transformation*) calcula la matriz de forma unívoca y exacta.
 
-### P6: ¿Por qué se prohíbe el centroide de la caja delimitadora (Bounding Box)?
-* **Fundamento Técnico:**
-  * El centroide 2D de una caja delimitadora o la base central de la caja aproximan el centro del torso o la proyección visual del cuerpo.
-  * Cuando la cámara tiene un ángulo cenital o picado, el torso o la cabeza de una persona de pie fuera de la zona restringida pueden proyectarse visualmente dentro del polígono en la imagen.
-  * Esto provoca **falsos positivos críticos** que detendrían la maquinaria de la fábrica innecesariamente cuando el operario está seguro.
-  * El anclaje a los tobillos (`left_ankle: 15`, `right_ankle: 16`) garantiza que solo se active la alarma si el punto de apoyo físico sobre el suelo vulnera la zona.
+### P6: ¿Por qué no usamos el borde inferior de una Bounding Box (Bottom-Center) y qué costos acarrea Pose?
+* **Fundamento Técnico y Trade-Off:**
+  * **El Baseline de Detección:** El enfoque tradicional de bajo costo no es el centroide 2D (que proyecta el torso), sino la base central de la caja delimitadora:
+    $$p_{\text{ground\_bbox}} = \left( \frac{x_{\min} + x_{\max}}{2}, \, y_{\max} \right)$$
+  * **Por qué Pose ofrece mejor semántica:** En cámaras con ángulo cenital, el punto medio de los tobillos detecta exactamente el apoyo físico de las extremidades inferiores en el piso ($Z_w = 0$). Si el operario se inclina, estira un brazo o manipula una herramienta larga, el bounding box crece lateralmente o hacia abajo de forma artificial, mientras que los tobillos permanecen anclados al suelo real.
+  * **El Costo y los Riesgos Ocultos de Pose:**
+    1. *Costo Computacional:* Un modelo de Pose tiene mayor número de capas/canales de salida, requiriendo más cómputo y memoria que un detector simple de cajas.
+    2. *Oclusiones Frecuentes:* En un entorno industrial, los tobillos sufren oclusiones constantes por maquinaria baja, pallets, carretillas o ropa de trabajo holgada.
+    3. *Borde del Encuadre:* Si el operario camina cerca del borde inferior de la cámara, los pies pueden quedar fuera de la imagen mientras el torso sigue dentro.
+    4. *Degradación de Confianza:* Cuando la confianza del keypoint decae, el sistema debe degradar a modo *coasting* (Kalman) o apoyarse en el tobillo visible.
+  * **Hipótesis Experimental:** Pose se adopta como hipótesis primaria por su valor anatómico, pero se mantiene la comparación contra Bbox Bottom-Center como experimento abierto para medir si la ganancia en fidelidad geométrica compensa la tasa de oclusión y la sobrecarga computacional.
 
 ### P8: ¿Por qué con exactamente $N=4$ puntos el error de reproyección es siempre 0 y cómo se mide un error real?
 * **Fundamento Técnico:**
@@ -99,3 +104,54 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
   * **Vista 2: Vista Cenital Métrica Top-Down (Bird's-Eye View - BEV):**
     * *Propósito Metrológico:* Genera un lienzo 2D ortogonal del suelo en metros (escala lineal constante $1\text{ m} = N\text{ px}$). Dibuja la máquina, las zonas concéntricas, los operarios rastreados y sus vectores de velocidad $[\dot{X}, \dot{Y}]$.
     * *Valor Normativo (ISO 13855):* La distancia de seguridad $S = K \times T + C$ es estrictamente métrica y no puede auditarse en píxeles debido a la distorsión proyectiva. La vista BEV permite medir distancias euclidianas reales y verificar la dirección exacta de aproximación hacia el peligro, además de integrarse directamente en gemelos digitales o pantallas HMI/SCADA industriales.
+
+### P12: ¿Por qué aplicamos un congelamiento de alcance (Scope Freeze) separando funcionalidades en Principal, Secundario y Futuro?
+* **Fundamento de Ingeniería:**
+  * **Ley de Rendimientos Decrecientes:** En sistemas de seguridad y visión artificial, agregar características complejas antes de validar la cadena causal primaria introduce vectores de fallo y acoplamientos innecesarios.
+  * **La Cadena Causal del MVP:**
+    $$\text{Frame} \to \text{Pose} \to \text{Tobillos} \to \text{Homografía} \to \text{Ubicación Métrica} \to \text{Kalman 2D} \to \text{FSM} \to \text{Dwell} \to \text{Visualización Dual} \to \text{Profiling}$$
+    Cada eslabón responde directamente a la hipótesis central de seguridad física bajo la norma ISO 13855:2024. Si este núcleo no es determinista y no cumple el presupuesto de tiempo $T_1$, cualquier adición periférica carece de valor.
+  * **Criterio de Segregación:**
+    1. *Principal (Obligatorio):* Lo necesario para ingerir video, calcular distancias métricas, transicionar estados de seguridad y auditar latencias.
+    2. *Secundario (Solo si sobra tiempo):* Benchmarks comparativos (PyTorch vs ONNX, CoreML granular, detectores alternativos) que aportan métricas de análisis pero no cambian la lógica de seguridad.
+    3. *Futuro (Fuera de alcance):* Hardware específico (GTX 1050 / Jetson), optimizaciones propietarias (TensorRT), orquestación (Docker), multi-cámara o re-entrenamiento. Evitan inflar la complejidad del MVP antes de contar con un prototipo funcional cerrado.
+
+### P13: ¿Por qué este prototipo se presenta como "inspirado en el razonamiento de ISO 13855" y NUNCA como un "sistema que cumple ISO 13855"?
+* **Fundamento de Ingeniería y Seguridad Funcional (Diferencia Conceptual Crítica):**
+  * **Alcance Estricto de ISO 13855:** La norma ISO 13855 regula el cálculo de distancias de separación ($S = K \cdot T + C$) para salvaguardas mecánicas y dispositivos electrosensibles de protección (ESPE / VBPD) certificados. No aplica de manera directa a sistemas que operan exclusivamente como sensores de presencia (*presence sensing*) sin arquitectura fail-safe tolerante a fallos de hardware.
+  * **Certificación vs Razonamiento:** Afirmar que un software en Python/ONNX "cumple ISO 13855" es un error conceptual grave. Una certificación de seguridad funcional exige redundancia de canal (categorías ISO 13849 PL d/e o IEC 61508 SIL 2/3), hardware calificado, análisis de modos de fallo (FMEA) y validación ante fallas sistemáticas.
+  * **La Postura Técnica Correcta:** Presentar el proyecto como:
+    > *Experimental vision-based intrusion monitoring system inspired by industrial safety-zone concepts and ISO 13855 safety-distance reasoning. Not a safety-rated protective device.*
+### P14: ¿Qué significa exactamente que el sistema reporte que una persona está a 0.93 m del peligro?
+* **Fundamento de Metrología y Visión Computacional:**
+  * **La Falsa Precisión:** En una entrevista técnica o auditoría, responder "la homografía calculó que está a exactamente 93 centímetros" denota inmadurez en visión por computadora.
+  * **El Modelo de Incertidumbre Compuesta:** La coordenada en metros es una función estimada $\hat{P}_{\text{world}} = H(\hat{p}_{\text{feet}})$, donde se acumulan cinco fuentes de error independientes:
+    1. *Pose estimation error:* Jitter e incertidumbre en la predicción de keypoints de tobillos.
+    2. *Pixel quantization:* Resolución finita y discretización de la cuadrícula del sensor de cámara.
+    3. *Camera calibration error:* Incertidumbre de medición en los puntos coplanares de referencia ground-truth.
+    4. *Ground-plane assumption:* Pequeñas desviaciones o desniveles del piso respecto a la hipótesis plana ideal $Z_w = 0$.
+    5. *Homography numerical error:* Amplificación de perturbaciones gobernada por el número de condición matricial $\kappa(H)$, especialmente en zonas con ángulos rasantes.
+### P15: ¿Qué hace el sistema cuando los pies del trabajador no se ven (oclusión por maquinaria) y qué es la propagación de confianza?
+* **Fundamento de Arquitectura y Modos de Fallo:**
+  * **El Escenario Crítico:** En una planta industrial, es habitual que una máquina baja o un pallet oculte los pies de un trabajador mientras su torso se aproxima al peligro. Si el estimador de pose reporta `conf(left_ankle) = 0.12` y `conf(right_ankle) = 0.08`, ¿qué se hace?
+  * **Las Cinco Opciones de Diseño:**
+    * *A) Rechazar la observación:* Descartar el dato en silencio genera un **peligro ciego**: el trabajador sigue avanzando pero el sistema actúa como si no existiera nadie.
+    * *B) Usar un solo tobillo:* Si un tobillo supera el umbral ($conf \ge 0.5$), usarlo como anclaje. Válido, aunque introduce un sesgo lateral de hasta $25\text{–}30\text{ cm}$.
+    * *C) Fallback a Bbox Bottom-Center:* Usar la base de la caja delimitadora. Mantiene la presencia pero puede tener sesgo si la base de la caja apoya sobre el obstáculo y no sobre el piso.
+    * *D) Predicción vía Tracker (Coasting):* El filtro de Kalman proyecta la trayectoria previa usando su modelo cinemático $[\dot{X}, \dot{Y}]$ durante una ventana temporal acotada ($N_{\text{missed}} \le 5$ frames $\approx 160\text{ ms}$).
+    * *E) Declarar Incertidumbre Explícita (Confidence Propagation):* Asociar una etiqueta de origen y confianza a cada coordenada.
+  * **La Política Implementada (Graceful Degradation):**
+    El pipeline combina B, D y E en una jerarquía tipada:
+    1. Si ambos tobillos son válidos $\to$ `ANKLES_DUAL` (confianza máxima).
+    2. Si uno es válido $\to$ `ANKLE_SINGLE` (confianza media).
+    3. Si ambos están ocluidos $\to$ Kalman retiene el track en modo `COASTING` extrapolando velocidad (`TRACKER_PREDICTED`).
+    4. Si la oclusión persiste $> 160\text{ ms}$, se evalúa fallback a bbox o eliminación segura.
+  * **Propagación de Confianza:** El sistema no emite simples tuplas `(x, y)`; conceptualmente emite:
+    ```python
+    PositionEstimate(xy_m, confidence, source="ankles | bbox | predicted")
+    ```
+    Esto permite que la FSM distinga entre una alarma con certeza física directa y una alarma sostenida por inercia cinemática.
+
+
+
+
