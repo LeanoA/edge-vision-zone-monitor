@@ -5,23 +5,32 @@ The `spatial-fsm` capability implements a 6-state deterministic safety automaton
 
 ## ADDED Requirements
 
+### Requirement: Orthogonal Spatial and Temporal State Evaluation
+The spatial FSM SHALL evaluate spatial occupancy and temporal dwell duration as decoupled orthogonal statechart regions:
+1. **Occupancy Automaton (`OccupancyState`)**: Evaluates geometric containment, boundary hysteresis, and approach speed across `OUTSIDE`, `ENTER_PENDING`, `INSIDE`, and `EXIT_PENDING`.
+2. **Dwell Classifier (`DwellState`)**: Evaluates continuous duration accrued strictly in `INSIDE`, across `NONE`, `NORMAL`, `WARNING`, and `VIOLATION`.
+
+#### Scenario: Normal Entry and Dwell Progression
+- **GIVEN** a worker track entering the danger polygon at normal approach speed ($v_n < 1.6\text{ m/s}$)
+- **WHEN** the track completes $N_{\text{confirm}}$ consecutive frames inside $P_{\text{danger}}$
+- **THEN** the FSM SHALL transition `occupancy_state` from `ENTER_PENDING` to `INSIDE`, assert `trip=True`, and transition `dwell_state` from `NONE` to `NORMAL` with $t_{\text{dwell}} \ge 0.0\text{ s}$.
+
+#### Scenario: Dwell Warning and Violation Thresholds
+- **GIVEN** a confirmed worker track in `occupancy_state=INSIDE`
+- **WHEN** continuous presence inside the zone reaches $t_{\text{dwell}} \ge T_{\text{warn}}$ (e.g. $5.0\text{ s}$)
+- **THEN** `dwell_state` SHALL transition to `WARNING`.
+- **WHEN** presence reaches $t_{\text{dwell}} \ge T_{\text{violation}}$ (e.g. $10.0\text{ s}$)
+- **THEN** `dwell_state` SHALL transition to `VIOLATION`.
+
+#### Scenario: Exit Hysteresis and Dwell Reset
+- **GIVEN** a worker track in `occupancy_state=INSIDE` and `dwell_state=WARNING`
+- **WHEN** the track moves outside $P_{\text{danger}}$ into the buffer band
+- **THEN** `occupancy_state` SHALL transition to `EXIT_PENDING`, and the dwell accumulation SHALL stop.
+- **WHEN** the track completes $N_{\text{release}}$ consecutive `OBSERVED` frames outside $P_{\text{release}}$
+- **THEN** `occupancy_state` SHALL transition to `OUTSIDE`, `trip` SHALL de-assert to `False`, and `dwell_state` SHALL reset to `NONE`.
+
 ### Requirement: 6-State Safety Automaton Definition and State Transitions
-The `SpatialFSM` MUST implement exactly 6 mutually exclusive discrete states defined by the enumeration:
-1. `SAFE`: No worker or object detected within the warning or danger boundaries; machine operation authorized.
-2. `WARNING_APPROACH`: Target detected within the warning buffer zone approaching the boundary or dwelling; advisory warning active, machine normal or speed-reduced.
-3. `DANGER_INTRUSION`: Confirmed hazard breach within danger polygon $P_{\text{danger}}$; safety trip active, emergency stop asserted.
-4. `MUTED`: Zone monitoring intentionally bypassed (e.g. authorized AGV material transfer with valid hardware interlock); trip output suppressed.
-5. `FAULT`: System failure, sensor signal loss, invalid calibration homography, or calculation exception; fail-safe trip asserted.
-6. `LOCKOUT`: Latched safety shutdown following confirmed intrusion or critical fault; requires explicit authorized manual reset to return to `SAFE`.
-
-The FSM MUST reject invalid state transitions and MUST initialize in `SAFE` (under nominal startup conditions) or `FAULT` (if initialization parameters are invalid).
-
-#### Scenario: Nominal progressive state transitions
-- **GIVEN** the FSM in `SAFE` state
-- **WHEN** a target approaches and enters the warning zone
-- **THEN** the FSM SHALL transition to `WARNING_APPROACH`
-- **AND** when the target breaches $P_{\text{danger}}$ and completes debounce confirmation
-- **THEN** the FSM SHALL transition to `DANGER_INTRUSION`.
+The `SpatialFSM` MUST implement supervisory states (`SAFE`, `WARNING_APPROACH`, `DANGER_INTRUSION`, `MUTED`, `FAULT`, `LOCKOUT`) alongside the orthogonal occupancy and dwell statecharts.
 
 #### Scenario: Latching into LOCKOUT upon emergency stop trigger
 - **GIVEN** the FSM in `DANGER_INTRUSION` state

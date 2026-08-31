@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from src.core.kalman_filter import Track
-from src.core.spatial_fsm import SafetyOutput, SafetyState
+from src.core.spatial_fsm import DwellState, OccupancyState, SafetyOutput, SafetyState
 from src.pipeline.safety_pipeline import (
     AnchorSource,
     LayoutMode,
@@ -60,9 +60,11 @@ def test_pipeline_result_dataclass():
     latencies = StageLatencies(1.0, 10.0, 0.5, 0.2, 0.3, 0.4, 12.4)
     safety_output = SafetyOutput(
         trip=False,
-        state=SafetyState.SAFE,
-        warning=False,
+        occupancy_state=OccupancyState.OUTSIDE,
+        dwell_state=DwellState.NONE,
         dwell_time_s=0.0,
+        warning=False,
+        state=SafetyState.SAFE,
         violating_tracks=[],
         timestamp=100.0,
         message="Nominal",

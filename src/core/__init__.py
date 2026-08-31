@@ -14,6 +14,8 @@ from src.core.kalman_filter import (
     TrackState,
 )
 from src.core.spatial_fsm import (
+    DwellState,
+    OccupancyState,
     SafetyOutput,
     SafetyState,
     SpatialFSM,
@@ -23,10 +25,12 @@ from src.core.spatial_fsm import (
 __all__ = [
     "AnchorSource",
     "CalibrationConfig",
+    "DwellState",
     "HomographyManager",
     "MetricKalmanFilter",
     "MultiTargetKalmanTracker",
     "ObservationStatus",
+    "OccupancyState",
     "PositionEstimate",
     "Track",
     "TrackState",

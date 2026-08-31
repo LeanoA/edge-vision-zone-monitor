@@ -1,7 +1,7 @@
 """
 src/core/spatial_fsm.py
-Spatial Finite State Machine with Dual Hysteresis for Industrial Hazard Safeguarding.
-Inspired by ISO 13855:2024 and IEC 61508 / ISO 13849 fail-safe architecture.
+Spatial Finite State Machine with Orthogonal Occupancy and Temporal Dwell Statecharts.
+Inspired by ISO 13855:2024, ISO 13849-1 (PL d/e), and IEC 61508 fail-safe architecture.
 """
 
 from dataclasses import dataclass, field
@@ -16,8 +16,24 @@ from shapely.prepared import prep, PreparedGeometry
 from src.core.kalman_filter import ObservationStatus, Track
 
 
+class OccupancyState(str, Enum):
+    """Discrete spatial occupancy states relative to the safeguarded zone geometry."""
+    OUTSIDE = "OUTSIDE"
+    ENTER_PENDING = "ENTER_PENDING"
+    INSIDE = "INSIDE"
+    EXIT_PENDING = "EXIT_PENDING"
+
+
+class DwellState(str, Enum):
+    """Discrete temporal duration classifications for confirmed zone occupants."""
+    NONE = "NONE"
+    NORMAL = "NORMAL"
+    WARNING = "WARNING"
+    VIOLATION = "VIOLATION"
+
+
 class SafetyState(str, Enum):
-    """Discrete states of the industrial safeguarding automaton."""
+    """Supervisory safety states of the industrial safeguarding system."""
     SAFE = "SAFE"
     WARNING_APPROACH = "WARNING_APPROACH"
     DANGER_INTRUSION = "DANGER_INTRUSION"
@@ -36,6 +52,7 @@ class ZoneConfig:
     n_confirm: int = 3
     n_release: int = 5
     dwell_warning_s: float = 5.0
+    dwell_violation_s: float = 10.0
     iso_k_speed: float = 1.6  # Human approach speed in m/s (ISO 13855)
 
     def __post_init__(self) -> None:
@@ -44,8 +61,10 @@ class ZoneConfig:
             raise ValueError("hysteresis_buffer_m must be between 0.15m and 0.30m.")
         if self.n_confirm <= 0 or self.n_release <= 0:
             raise ValueError("n_confirm and n_release must be positive integers.")
-        if self.dwell_warning_s <= 0.0 or self.iso_k_speed <= 0.0:
-            raise ValueError("dwell_warning_s and iso_k_speed must be positive numbers.")
+        if self.dwell_warning_s <= 0.0 or self.dwell_violation_s <= 0.0 or self.iso_k_speed <= 0.0:
+            raise ValueError("dwell_warning_s, dwell_violation_s, and iso_k_speed must be positive numbers.")
+        if self.dwell_violation_s < self.dwell_warning_s:
+            raise ValueError("dwell_violation_s must be greater than or equal to dwell_warning_s.")
         if not self.danger_polygon or len(self.danger_polygon) < 3:
             raise ValueError("danger_polygon must contain at least 3 vertices.")
 
@@ -65,12 +84,16 @@ class ZoneConfig:
 class SafetyOutput:
     """Immutable safety decision output emitted on every pipeline frame."""
     trip: bool
-    state: SafetyState
-    warning: bool
+    occupancy_state: OccupancyState
+    dwell_state: DwellState
     dwell_time_s: float
+    warning: bool
+    state: SafetyState = SafetyState.SAFE
     violating_tracks: List[int] = field(default_factory=list)
     timestamp: float = 0.0
     message: str = ""
+    fault_reason: Optional[str] = None
+    lockout_active: bool = False
 
 
 @dataclass
@@ -80,6 +103,7 @@ class TrackSpatialRecord:
     danger_count: int = 0
     clean_count: int = 0
     fast_approach: bool = False
+    first_seen_inside_ts: Optional[float] = None
     first_seen_warning_ts: Optional[float] = None
     dwell_time_s: float = 0.0
     last_observed_dwell_s: float = 0.0
@@ -87,21 +111,11 @@ class TrackSpatialRecord:
 
 class SpatialFSM:
     """
-    Industrial safety state machine enforcing dual spatial-temporal hysteresis
-    and emitting fail-safe trip signals.
+    Industrial safety state machine enforcing orthogonal Spatial Occupancy and
+    Temporal Dwell Statecharts with dual spatial-temporal hysteresis and fail-safe trips.
     """
 
     def __init__(self, config: ZoneConfig) -> None:
-        """
-        Initialize the Spatial FSM from zone configuration.
-        Precomputes Shapely prepared geometries for sub-millisecond containment.
-
-        Args:
-            config: Validated ZoneConfig instance.
-
-        Raises:
-            ValueError: If polygons are invalid, self-intersecting, or non-convex/degenerate.
-        """
         self._config = config
 
         # Geometries
@@ -132,6 +146,8 @@ class SpatialFSM:
         self._seg_len_sq[self._seg_len_sq == 0] = 1e-12
 
         # State and latching
+        self._occupancy_state: OccupancyState = OccupancyState.OUTSIDE
+        self._dwell_state: DwellState = DwellState.NONE
         self._current_state: SafetyState = SafetyState.FAULT  # Fail-safe startup
         self._is_tripped: bool = True
         self._is_muted: bool = False
@@ -146,73 +162,105 @@ class SpatialFSM:
 
     @property
     def current_state(self) -> SafetyState:
-        """Return the current active SafetyState."""
+        """Return the current supervisory SafetyState."""
         return self._current_state
 
     @property
+    def occupancy_state(self) -> OccupancyState:
+        """Return the current active Spatial Occupancy State."""
+        return self._occupancy_state
+
+    @property
+    def dwell_state(self) -> DwellState:
+        """Return the current active Temporal Dwell State."""
+        return self._dwell_state
+
+    @property
     def is_tripped(self) -> bool:
-        """Return True if safety trip is asserted (emergency stop active)."""
+        """Return True if safety trip is asserted (emergency stop contactors open)."""
         return self._is_tripped
 
     @property
     def dwell_time(self) -> float:
-        """Return maximum dwell time in seconds of any active violating/warning track."""
+        """Return maximum dwell time in seconds of any active inside track."""
         return self._last_dwell_time
 
     @property
-    def is_muted(self) -> bool:
-        """Return True if muting bypass is active."""
-        return self._is_muted
-
-    @property
     def danger_polygon(self) -> Polygon:
-        """Return primary danger zone polygon."""
         return self._danger_poly
 
     @property
     def release_polygon(self) -> Polygon:
-        """Return outward-dilated release boundary polygon."""
         return self._release_poly
 
     @property
     def warning_polygon(self) -> Optional[Polygon]:
-        """Return warning perimeter polygon if configured."""
         return self._warning_poly
 
-    def _compute_approach_velocity(
-        self,
-        pos: Tuple[float, float],
-        velocity: Tuple[float, float],
-    ) -> float:
-        """
-        Compute ISO 13855 boundary-normal approach velocity component (m/s).
-        Finds the closest point on danger boundary and projects velocity onto inward normal.
-        """
-        p = np.array(pos, dtype=np.float64)
-        v = np.array(velocity, dtype=np.float64)
+    def trigger_fault(self, reason: str = "Hardware or pipeline fault detected") -> SafetyOutput:
+        """Assert fail-safe FAULT condition and open safety contactors."""
+        self._current_state = SafetyState.FAULT
+        self._is_tripped = True
+        self._fault_reason = reason
+        now = time.monotonic()
+        return SafetyOutput(
+            trip=True,
+            occupancy_state=self._occupancy_state,
+            dwell_state=self._dwell_state,
+            dwell_time_s=self._last_dwell_time,
+            warning=True,
+            state=SafetyState.FAULT,
+            violating_tracks=sorted(list(self._violating_track_ids)),
+            timestamp=now,
+            message=reason,
+            fault_reason=reason,
+        )
 
-        # AP vector for all segments
-        ap = p - self._seg_A  # (K, 2)
-        dot = np.sum(ap * self._seg_AB, axis=1)
-        t = np.clip(dot / self._seg_len_sq, 0.0, 1.0)  # (K,)
-        q = self._seg_A + t[:, np.newaxis] * self._seg_AB  # (K, 2)
+    def trigger_lockout(self, reason: str = "Safety interlock triggered") -> SafetyOutput:
+        """Latch into safety LOCKOUT requiring manual supervisor reset."""
+        self._current_state = SafetyState.LOCKOUT
+        self._is_tripped = True
+        self._lockout_reason = reason
+        now = time.monotonic()
+        return SafetyOutput(
+            trip=True,
+            occupancy_state=self._occupancy_state,
+            dwell_state=self._dwell_state,
+            dwell_time_s=self._last_dwell_time,
+            warning=True,
+            state=SafetyState.LOCKOUT,
+            violating_tracks=sorted(list(self._violating_track_ids)),
+            timestamp=now,
+            message=reason,
+            lockout_active=True,
+        )
 
-        # Distance from p to nearest points on segments
-        diff = q - p  # (K, 2) vector pointing from P towards danger boundary
-        dist_sq = np.sum(diff ** 2, axis=1)
-        min_idx = np.argmin(dist_sq)
-
-        dist = np.sqrt(dist_sq[min_idx])
-        if dist < 1e-6:
-            return 0.0
-
-        # Unit inward normal pointing from target position towards danger polygon
-        n_inward = diff[min_idx] / dist
-        vn = float(np.dot(v, n_inward))
-        return vn
+    def reset(self) -> SafetyOutput:
+        """Manual supervisory reset clearing FAULT and LOCKOUT latches."""
+        self._current_state = SafetyState.SAFE
+        self._occupancy_state = OccupancyState.OUTSIDE
+        self._dwell_state = DwellState.NONE
+        self._is_tripped = False
+        self._fault_reason = ""
+        self._lockout_reason = ""
+        self._track_records.clear()
+        self._violating_track_ids.clear()
+        self._last_dwell_time = 0.0
+        now = time.monotonic()
+        return SafetyOutput(
+            trip=False,
+            occupancy_state=OccupancyState.OUTSIDE,
+            dwell_state=DwellState.NONE,
+            dwell_time_s=0.0,
+            warning=False,
+            state=SafetyState.SAFE,
+            violating_tracks=[],
+            timestamp=now,
+            message="System reset by supervisor. All zones clear.",
+        )
 
     def set_muted(self, muted: bool) -> None:
-        """Command transition into or out of MUTED state for authorized transport."""
+        """Enable or disable operational muting."""
         self._is_muted = bool(muted)
         if self._is_muted:
             if self._current_state not in (SafetyState.FAULT, SafetyState.LOCKOUT):
@@ -220,95 +268,36 @@ class SpatialFSM:
                 self._is_tripped = False
         else:
             if self._current_state == SafetyState.MUTED:
-                # If there are active violating tracks, trip immediately
-                if len(self._violating_track_ids) > 0:
-                    self._current_state = SafetyState.DANGER_INTRUSION
-                    self._is_tripped = True
-                else:
-                    self._current_state = SafetyState.SAFE
-                    self._is_tripped = False
+                self._current_state = SafetyState.SAFE
 
-    def trigger_fault(self, reason: str) -> SafetyOutput:
-        """Transition immediately to FAULT state with fail-safe trip asserted."""
-        self._fault_reason = reason
-        self._current_state = SafetyState.FAULT
-        self._is_tripped = True
-        return SafetyOutput(
-            trip=True,
-            state=SafetyState.FAULT,
-            warning=True,
-            dwell_time_s=self._last_dwell_time,
-            violating_tracks=sorted(list(self._violating_track_ids)),
-            message=reason,
-        )
+    def _compute_approach_velocity(self, pos: Tuple[float, float], vel: Tuple[float, float]) -> float:
+        """Compute inward normal approach velocity towards danger polygon."""
+        p = np.array([pos[0], pos[1]], dtype=np.float64)
+        v = np.array([vel[0], vel[1]], dtype=np.float64)
+        speed = float(np.linalg.norm(v))
+        if speed < 1e-6:
+            return 0.0
 
-    def trigger_lockout(self, reason: str = "") -> SafetyOutput:
-        """Transition to LOCKOUT state with fail-safe trip latched."""
-        self._lockout_reason = reason
-        self._current_state = SafetyState.LOCKOUT
-        self._is_tripped = True
-        return SafetyOutput(
-            trip=True,
-            state=SafetyState.LOCKOUT,
-            warning=True,
-            dwell_time_s=self._last_dwell_time,
-            violating_tracks=sorted(list(self._violating_track_ids)),
-            message=reason,
-        )
+        p_minus_A = p - self._seg_A
+        t = np.sum(p_minus_A * self._seg_AB, axis=1) / self._seg_len_sq
+        t_clamped = np.clip(t, 0.0, 1.0)[:, np.newaxis]
+        closest_pts = self._seg_A + t_clamped * self._seg_AB
+        diffs = closest_pts - p
+        dist_sq = np.sum(diffs ** 2, axis=1)
+        min_idx = np.argmin(dist_sq)
 
-    def reset(self) -> SafetyOutput:
-        """
-        Attempt manual reset from LOCKOUT or FAULT state back to SAFE.
-        Will reject reset and remain in LOCKOUT if physical zones are not clear.
-        """
-        # Verify physical zones are clear of active tracks
-        is_occupied = False
-        for trk in self._latest_tracks:
-            if bool(shapely.contains_xy(self._release_poly, trk.position[0], trk.position[1])):
-                is_occupied = True
-                break
+        dist = np.sqrt(dist_sq[min_idx])
+        if dist < 1e-6:
+            return speed
 
-        has_active_violators = any(trk.track_id in self._violating_track_ids for trk in self._latest_tracks)
-
-        if has_active_violators or is_occupied:
-            # Reject reset
-            self._current_state = SafetyState.LOCKOUT
-            self._is_tripped = True
-            return SafetyOutput(
-                trip=True,
-                state=SafetyState.LOCKOUT,
-                warning=True,
-                dwell_time_s=self._last_dwell_time,
-                violating_tracks=sorted(list(self._violating_track_ids)),
-                message="Reset rejected: zone is occupied or uncleared.",
-            )
-
-        # Authorized reset succeeds
-        self._fault_reason = ""
-        self._lockout_reason = ""
-        self._violating_track_ids.clear()
-        self._current_state = SafetyState.SAFE
-        self._is_tripped = False
-        return SafetyOutput(
-            trip=False,
-            state=SafetyState.SAFE,
-            warning=False,
-            dwell_time_s=0.0,
-            message="Reset successful: system returned to SAFE.",
-        )
+        normal = diffs[min_idx] / dist
+        vn = float(np.dot(v, normal))
+        return max(0.0, min(vn, speed))
 
     def evaluate_containment(
         self, tracks: List[Track]
     ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
-        """
-        Evaluate spatial containment for a batch of tracks against prepared geometries.
-
-        Args:
-            tracks: List of Track instances.
-
-        Returns:
-            Tuple of (in_danger_mask, in_release_mask, in_warning_mask).
-        """
+        """Evaluate spatial containment against prepared geometries."""
         if not tracks:
             empty = np.empty(0, dtype=bool)
             return empty, empty, None
@@ -331,44 +320,44 @@ class SpatialFSM:
         timestamp: Optional[float] = None,
     ) -> SafetyOutput:
         """
-        Evaluate current confirmed tracks against spatial zones and update FSM state.
-
-        Args:
-            tracks: List of confirmed Track objects from MultiTargetKalmanTracker.
-            timestamp: Monotonic frame timestamp in seconds (defaults to time.monotonic()).
-
-        Returns:
-            Authoritative SafetyOutput with trip status and diagnostics.
+        Execute synchronous evaluation of orthogonal Spatial Occupancy and Temporal Dwell Statecharts.
         """
         now = time.monotonic() if timestamp is None else float(timestamp)
         self._latest_tracks = list(tracks)
 
-        # Latched states cannot exit via normal update
+        # Latched supervisory states cannot exit via normal update
         if self._current_state == SafetyState.FAULT and self._fault_reason:
             return SafetyOutput(
                 trip=True,
-                state=SafetyState.FAULT,
-                warning=True,
+                occupancy_state=self._occupancy_state,
+                dwell_state=self._dwell_state,
                 dwell_time_s=self._last_dwell_time,
+                warning=True,
+                state=SafetyState.FAULT,
                 violating_tracks=sorted(list(self._violating_track_ids)),
                 timestamp=now,
                 message=self._fault_reason,
+                fault_reason=self._fault_reason,
             )
         if self._current_state == SafetyState.LOCKOUT:
             return SafetyOutput(
                 trip=True,
-                state=SafetyState.LOCKOUT,
-                warning=True,
+                occupancy_state=self._occupancy_state,
+                dwell_state=self._dwell_state,
                 dwell_time_s=self._last_dwell_time,
+                warning=True,
+                state=SafetyState.LOCKOUT,
                 violating_tracks=sorted(list(self._violating_track_ids)),
                 timestamp=now,
                 message=self._lockout_reason or "Latched LOCKOUT active.",
+                lockout_active=True,
             )
 
-        # Evaluate tracks
-        has_warning = False
         active_ids = set()
-        max_dwell = 0.0
+        has_fast_approach = False
+        has_warning_zone_presence = False
+        any_enter_pending = False
+        any_exit_pending = False
 
         if tracks:
             in_danger_mask, in_release_mask, in_warning_mask = self.evaluate_containment(tracks)
@@ -385,13 +374,16 @@ class SpatialFSM:
                     else (in_release and not in_danger)
                 )
 
-                # ISO 13855 approach velocity check (Cauchy-Schwarz bound: vn <= ||v||_2)
+                if in_warning:
+                    has_warning_zone_presence = True
+
+                # ISO 13855 Approach velocity check
                 fast_approach = False
                 if not in_danger and trk.speed >= self._config.iso_k_speed:
                     vn = self._compute_approach_velocity(pos, trk.velocity)
                     if vn >= self._config.iso_k_speed:
                         fast_approach = True
-                        has_warning = True
+                        has_fast_approach = True
 
                 # Retrieve or initialize spatial debounce record
                 if tid not in self._track_records:
@@ -400,31 +392,9 @@ class SpatialFSM:
                 else:
                     record = self._track_records[tid]
 
-                # Dwell time tracking in warning perimeter with freezing during coasting
                 obs_status = getattr(trk, "observation_status", ObservationStatus.OBSERVED)
-                if in_warning and not in_danger:
-                    has_warning = True
-                    if obs_status == ObservationStatus.OBSERVED:
-                        if record.first_seen_warning_ts is None:
-                            record.first_seen_warning_ts = now
-                        record.dwell_time_s = max(0.0, now - record.first_seen_warning_ts)
-                        record.last_observed_dwell_s = record.dwell_time_s
-                    else:
-                        # PREDICTED or STALE: Freeze dwell time at last observed duration
-                        if record.first_seen_warning_ts is not None:
-                            record.dwell_time_s = record.last_observed_dwell_s
-                            # Adjust first_seen_warning_ts so elapsed time doesn't jump on re-observation
-                            record.first_seen_warning_ts = now - record.dwell_time_s
-                else:
-                    if not in_release:
-                        record.first_seen_warning_ts = None
-                        record.dwell_time_s = 0.0
-                        record.last_observed_dwell_s = 0.0
 
-                if record.dwell_time_s > max_dwell:
-                    max_dwell = record.dwell_time_s
-
-                # Spatial and temporal debounce logic
+                # 1. Spatial Debounce Logic
                 if in_danger:
                     record.clean_count = 0
                     if fast_approach or record.fast_approach:
@@ -434,30 +404,52 @@ class SpatialFSM:
                         record.danger_count += 1
                 elif in_release:
                     # In buffer band [P_danger, P_release]
-                    # Chattering suppression: do not clear danger, do not increment clean_count
                     record.clean_count = 0
                     if tid not in self._violating_track_ids:
                         record.danger_count = 0
                 else:
                     # Completely outside P_release
                     record.danger_count = 0
-                    # Asymmetric de-escalation: clean_count increments ONLY if OBSERVED
                     if obs_status == ObservationStatus.OBSERVED:
                         record.clean_count += 1
 
-                # Update fast_approach state for subsequent frames
                 record.fast_approach = fast_approach
 
-                # Escalation to DANGER_INTRUSION (permitted on any status)
+                # 2. Update Violation Membership
                 if record.danger_count >= self._config.n_confirm:
                     self._violating_track_ids.add(tid)
+                elif 0 < record.danger_count < self._config.n_confirm and tid not in self._violating_track_ids:
+                    any_enter_pending = True
 
-                # De-escalation back towards SAFE (strictly requires n_release OBSERVED frames outside release)
                 if tid in self._violating_track_ids:
-                    if not in_release and record.clean_count >= self._config.n_release:
+                    if in_danger:
+                        pass
+                    elif not in_release and record.clean_count >= self._config.n_release:
                         self._violating_track_ids.discard(tid)
+                        record.first_seen_inside_ts = None
+                        record.dwell_time_s = 0.0
+                        record.last_observed_dwell_s = 0.0
+                    else:
+                        any_exit_pending = True
 
-        # Cleanup records for tracks that disappeared
+                # 3. Dwell Time Accumulation (Strictly while in INSIDE state)
+                if tid in self._violating_track_ids:
+                    if obs_status == ObservationStatus.OBSERVED:
+                        if record.first_seen_inside_ts is None:
+                            record.first_seen_inside_ts = now
+                        record.dwell_time_s = max(0.0, now - record.first_seen_inside_ts)
+                        record.last_observed_dwell_s = record.dwell_time_s
+                    else:
+                        # Freeze dwell time during coasting / unobserved
+                        if record.first_seen_inside_ts is not None:
+                            record.dwell_time_s = record.last_observed_dwell_s
+                            record.first_seen_inside_ts = now - record.dwell_time_s
+                else:
+                    record.first_seen_inside_ts = None
+                    record.dwell_time_s = 0.0
+                    record.last_observed_dwell_s = 0.0
+
+        # Disappearance Check (ISO 13849-1 Fail-Safe Latch)
         disappeared_violators = False
         disappeared_tid = None
         if len(self._track_records) > len(active_ids):
@@ -466,8 +458,6 @@ class SpatialFSM:
                     if tid not in self._violating_track_ids:
                         del self._track_records[tid]
                     else:
-                        # FAIL-SAFE: A track violating danger disappeared without verified exit!
-                        # Latch into LOCKOUT per ISO 13849-1 fail-safe architecture.
                         disappeared_violators = True
                         disappeared_tid = tid
                         del self._track_records[tid]
@@ -477,10 +467,41 @@ class SpatialFSM:
                 f"Hazard violation unverified: violating track {disappeared_tid} disappeared inside hazard zone."
             )
 
-        # Calculate max active dwell time
+        # 4. Resolve Region 1: OccupancyState
+        if len(self._violating_track_ids) > 0:
+            if any(self._track_records.get(tid, TrackSpatialRecord(tid)).danger_count >= self._config.n_confirm for tid in self._violating_track_ids):
+                self._occupancy_state = OccupancyState.INSIDE
+            else:
+                self._occupancy_state = OccupancyState.EXIT_PENDING
+        elif any_exit_pending:
+            self._occupancy_state = OccupancyState.EXIT_PENDING
+        elif any_enter_pending:
+            self._occupancy_state = OccupancyState.ENTER_PENDING
+        else:
+            self._occupancy_state = OccupancyState.OUTSIDE
+
+        # 5. Resolve Region 2: DwellState (Evaluated over INSIDE tracks)
+        max_dwell = 0.0
+        for tid in self._violating_track_ids:
+            rec = self._track_records.get(tid)
+            if rec and rec.dwell_time_s > max_dwell:
+                max_dwell = rec.dwell_time_s
+
         self._last_dwell_time = max_dwell
 
-        # Determine target state and outputs
+        if self._occupancy_state == OccupancyState.INSIDE:
+            if max_dwell >= self._config.dwell_violation_s:
+                self._dwell_state = DwellState.VIOLATION
+            elif max_dwell >= self._config.dwell_warning_s:
+                self._dwell_state = DwellState.WARNING
+            else:
+                self._dwell_state = DwellState.NORMAL
+        else:
+            self._dwell_state = DwellState.NONE
+            if self._occupancy_state == OccupancyState.OUTSIDE:
+                self._last_dwell_time = 0.0
+
+        # 6. Trip and Warning Signals
         if self._is_muted:
             self._current_state = SafetyState.MUTED
             self._is_tripped = False
@@ -490,15 +511,12 @@ class SpatialFSM:
             self._current_state = SafetyState.DANGER_INTRUSION
             self._is_tripped = True
             is_warning = True
-            msg = f"Hazard intrusion: tracks {sorted(list(self._violating_track_ids))}"
-        elif has_warning or max_dwell > 0.0:
+            msg = f"Hazard intrusion: tracks {sorted(list(self._violating_track_ids))} (Occupancy: {self._occupancy_state.value}, Dwell: {self._dwell_state.value} {self._last_dwell_time:.1f}s)"
+        elif self._occupancy_state in (OccupancyState.EXIT_PENDING, OccupancyState.ENTER_PENDING) or has_fast_approach or has_warning_zone_presence:
             self._current_state = SafetyState.WARNING_APPROACH
             self._is_tripped = False
             is_warning = True
-            if self._last_dwell_time >= self._config.dwell_warning_s:
-                msg = f"Warning: Target dwelling in warning zone ({self._last_dwell_time:.1f}s >= {self._config.dwell_warning_s:.1f}s)"
-            else:
-                msg = "Warning: Target in warning zone or approaching hazard."
+            msg = f"Warning: Occupancy {self._occupancy_state.value}"
         else:
             self._current_state = SafetyState.SAFE
             self._is_tripped = False
@@ -507,9 +525,11 @@ class SpatialFSM:
 
         return SafetyOutput(
             trip=self._is_tripped,
-            state=self._current_state,
-            warning=is_warning,
+            occupancy_state=self._occupancy_state,
+            dwell_state=self._dwell_state,
             dwell_time_s=self._last_dwell_time,
+            warning=is_warning,
+            state=self._current_state,
             violating_tracks=sorted(list(self._violating_track_ids)),
             timestamp=now,
             message=msg,

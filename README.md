@@ -186,27 +186,39 @@ $$\begin{bmatrix} X' \\ Y' \\ W \end{bmatrix} = H \begin{bmatrix} u \\ v \\ 1 \e
 
 La matriz $H$ se estima mediante el algoritmo DLT (*Direct Linear Transformation*) con validación de no-colinealidad y condicionamiento en [`src/core/homography.py`](src/core/homography.py). Para más detalles conceptuales, consultar [ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md) y [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md).
 
-### 2. Máquina de Estados Finitos Espacial (Spatial FSM)
-Para evitar oscilaciones (*flickering*) en los límites de las zonas restringidas, el tracker aplica histéresis espacial ($P_{\text{danger}}$ vs $P_{\text{release}}$) y temporal ($T_{\text{dwell}}$):
+### 2. Autómata de Seguridad: Regiones Ortogonales Desacopladas (Statecharts) ([Ver ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md))
+
+Para evitar la conflación entre la **topología espacial** y la **acumulación temporal**, el sistema desacopla el razonamiento en dos autómatas concurrentes e independientes:
 
 ```
-       [ OUTSIDE ]
-            │ (Entra a P_danger)
-            ▼
-    [ ENTER_PENDING ] ──(Histéresis completada)──► [ INTRUSION_ACTIVE ]
-            │                                             │ (Dwell time > T_warn)
-            │ (Sale antes del timer)                      ▼
-            └───────────────────────────────────► [ DWELL_WARNING ]
-                                                          │ (Dwell time > T_violation)
-                                                          ▼
-                                                  [ DWELL_VIOLATION ]
-                                                          │ (Sale de P_release)
-                                                          ▼
-                                                   [ EXIT_PENDING ]
-                                                          │
-                                                          ▼
-                                                     [ OUTSIDE ]
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. AUTÓMATA DE OCUPACIÓN ESPACIAL (OccupancyState)                          │
+│                                                                             │
+│               [ OUTSIDE ] ◄─────────────────┐                               │
+│                    │                        │                               │
+│     (Punto dentro) │                        │ (N_release cuadros OBSERVED   │
+│                    ▼                        │  fuera de P_release)          │
+│            [ ENTER_PENDING ]                │                               │
+│                    │                        │                               │
+│ (N_confirm cuadros │                        │                               │
+│  o vn >= 1.6 m/s)  ▼                        │                               │
+│               [ INSIDE ] ──────────► [ EXIT_PENDING ]                       │
+│              (trip=True)    (Punto fuera    │                               │
+│                              de P_danger)   │                               │
+└────────────────────┬────────────────────────┴───────────────────────────────┘
+                     │ (Condición: Occupancy == INSIDE)
+                     ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2. CLASIFICADOR TEMPORAL DE PERMANENCIA (DwellState)                        │
+│                                                                             │
+│    (Occupancy != INSIDE) ──► [ NONE ] (Timer inactivo / reset a 0.0s)        │
+│                                                                             │
+│    [ NORMAL ] ──(t >= T_warn)──► [ WARNING ] ──(t >= T_violation)──► [ VIOLATION ] │
+│   (0 <= t < T_warn)            (T_warn <= t < T_viol)           (t >= T_viol)│
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+* **Invariante Fail-Safe:** La señal de parada de emergencia (`trip = True`) se dispara en el instante $t = 0.0\text{ s}$ de confirmación en `INSIDE` (o ante `FAULT`/`LOCKOUT`). El clasificador de *dwell* categoriza la severidad operacional sin demorar la respuesta de parada.
 
 ---
 
@@ -271,6 +283,7 @@ Para evitar oscilaciones (*flickering*) en los límites de las zonas restringida
   * **[ADR-006](docs/decisions/adr-006-prepared-geometries-dynamic-debounce-bypass.md):** Geometrías Preparadas y Bypass Dinámico de Debounce en FSM de Seguridad (ISO 13855).
   * **[ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md):** Gestión de Oclusiones en Extremidades Inferiores y Propagación de Confianza.
   * **[ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md):** Epistemología de Estados de Observación Kalman, Ruido Espectral y Desescalada Asimétrica.
+  * **[ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md):** Desacoplamiento de Autómata Espacial y Clasificación Temporal de Dwell en Regiones Ortogonales (Statecharts).
 
 ---
 

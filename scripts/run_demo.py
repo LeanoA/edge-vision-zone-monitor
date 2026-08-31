@@ -176,6 +176,9 @@ class DemoRunner:
                 "frame_id": result.frame_id,
                 "timestamp": result.timestamp,
                 "safety_state": state_name,
+                "occupancy_state": result.safety_output.occupancy_state.value,
+                "dwell_state": result.safety_output.dwell_state.value,
+                "dwell_time_s": round(result.safety_output.dwell_time_s, 2),
                 "trip_active": bool(result.safety_output.trip),
                 "tracks": [
                     {

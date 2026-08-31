@@ -25,3 +25,4 @@ Cada documento debe seguir el formato estándar:
 | [ADR-006](adr-006-prepared-geometries-dynamic-debounce-bypass.md) | Geometrías Preparadas y Bypass Dinámico de Debounce en FSM de Seguridad (ISO 13855) | Aceptado | 2026-08-30 |
 | [ADR-007](adr-007-occlusion-handling-confidence-propagation.md) | Gestión de Oclusiones en Extremidades Inferiores y Propagación de Confianza | Aceptado | 2026-08-30 |
 | [ADR-008](adr-008-kalman-epistemology-noise-divergence.md) | Epistemología de Estados de Observación Kalman, Ruido Espectral y Desescalada Asimétrica | Aceptado | 2026-08-30 |
+| [ADR-009](adr-009-decoupled-spatial-dwell-statecharts.md) | Desacoplamiento de Autómata Espacial y Clasificación Temporal de Dwell en Regiones Ortogonales | Aceptado | 2026-08-31 |

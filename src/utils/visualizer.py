@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 
 from src.core.homography import HomographyManager
-from src.core.spatial_fsm import SafetyState, SpatialFSM
+from src.core.spatial_fsm import DwellState, OccupancyState, SafetyState, SpatialFSM
 from src.pipeline.safety_pipeline import LayoutMode, PipelineResult
 
 
@@ -176,20 +176,29 @@ class DualVisualizer:
         banner = np.zeros((banner_h, w, 3), dtype=np.uint8)
 
         is_tripped = result.safety_output.trip
+        occ = result.safety_output.occupancy_state
+        dwell = result.safety_output.dwell_state
+        dwell_s = result.safety_output.dwell_time_s
         state = result.safety_output.state
 
-        if is_tripped or state in (SafetyState.DANGER_INTRUSION, SafetyState.FAULT, SafetyState.LOCKOUT):
+        if is_tripped or state in (SafetyState.FAULT, SafetyState.LOCKOUT):
             banner_bg = (0, 0, 200)      # Alert Red
             text_color = (255, 255, 255)
-            status_text = f"SAFETY TRIP: {state.value}"
-        elif state == SafetyState.WARNING_APPROACH:
+            if state == SafetyState.LOCKOUT:
+                status_text = "SAFETY TRIP: LOCKOUT (LATCHED)"
+            elif state == SafetyState.FAULT:
+                status_text = "SAFETY TRIP: FAULT"
+            else:
+                dwell_suffix = f" | DWELL: {dwell.value} ({dwell_s:.1f}s)" if dwell != DwellState.NONE else ""
+                status_text = f"SAFETY TRIP: {occ.value}{dwell_suffix}"
+        elif occ in (OccupancyState.ENTER_PENDING, OccupancyState.EXIT_PENDING) or result.safety_output.warning:
             banner_bg = (0, 165, 255)    # Amber Warning
             text_color = (0, 0, 0)
-            status_text = f"WARNING: {state.value}"
+            status_text = f"WARNING: {occ.value}"
         else:
             banner_bg = (0, 140, 0)      # Safe Green
             text_color = (255, 255, 255)
-            status_text = f"SYSTEM SAFE: {state.value}"
+            status_text = f"SYSTEM SAFE: {occ.value}"
 
         banner[:] = banner_bg
         cv2.addWeighted(banner, 0.85, canvas[:banner_h, :], 0.15, 0, canvas[:banner_h, :])
@@ -197,7 +206,7 @@ class DualVisualizer:
         fps = 1000.0 / result.latencies.total_t1_ms if result.latencies.total_t1_ms > 0 else 0.0
         telemetry = f"t1: {result.latencies.total_t1_ms:.1f}ms ({fps:.0f} FPS) | Tracks: {len(result.tracks)}"
 
-        cv2.putText(canvas, status_text, (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, text_color, 2)
+        cv2.putText(canvas, status_text, (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.65, text_color, 2)
         cv2.putText(canvas, telemetry, (w - 380, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.55, text_color, 1)
 
         return canvas

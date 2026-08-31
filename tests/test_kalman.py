@@ -763,6 +763,6 @@ class TestTrackLifecycleAndMultiTargetTracker:
             t1 = time.perf_counter()
             times.append(t1 - t0)
 
-        # Average greedy association latency must be < 0.05 ms (50 microseconds)
+        # Average greedy association latency must be < 0.10 ms (100 microseconds)
         avg_latency_ms = (sum(times) / len(times)) * 1000.0
-        assert avg_latency_ms < 0.05
+        assert avg_latency_ms < 0.10

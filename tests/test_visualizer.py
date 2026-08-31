@@ -10,7 +10,14 @@ import pytest
 
 from src.core.homography import HomographyManager
 from src.core.kalman_filter import MetricKalmanFilter, Track, TrackState
-from src.core.spatial_fsm import SafetyOutput, SafetyState, SpatialFSM, ZoneConfig
+from src.core.spatial_fsm import (
+    DwellState,
+    OccupancyState,
+    SafetyOutput,
+    SafetyState,
+    SpatialFSM,
+    ZoneConfig,
+)
 from src.pipeline.safety_pipeline import (
     LayoutMode,
     PipelineResult,
@@ -55,9 +62,11 @@ def sample_pipeline_result():
     )
     safety_output = SafetyOutput(
         trip=False,
-        state=SafetyState.SAFE,
-        warning=False,
+        occupancy_state=OccupancyState.OUTSIDE,
+        dwell_state=DwellState.NONE,
         dwell_time_s=1.2,
+        warning=False,
+        state=SafetyState.SAFE,
         violating_tracks=[],
         timestamp=100.0,
         message="Nominal",
@@ -118,9 +127,11 @@ def test_dual_visualizer_status_banner_trip_assertion(mock_pipeline_components, 
     # Trip result
     trip_output = SafetyOutput(
         trip=True,
-        state=SafetyState.DANGER_INTRUSION,
-        warning=True,
+        occupancy_state=OccupancyState.INSIDE,
+        dwell_state=DwellState.WARNING,
         dwell_time_s=3.5,
+        warning=True,
+        state=SafetyState.DANGER_INTRUSION,
         violating_tracks=[1],
         message="Intrusion Trip",
     )
