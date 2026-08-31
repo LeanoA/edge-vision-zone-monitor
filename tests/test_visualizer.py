@@ -52,6 +52,7 @@ def mock_pipeline_components():
 def sample_pipeline_result():
     """Create a representative PipelineResult with tracks and detections."""
     latencies = StageLatencies(
+        capture_ms=0.0,
         preprocess_ms=1.5,
         inference_ms=12.0,
         keypoint_extract_ms=0.8,
@@ -59,6 +60,7 @@ def sample_pipeline_result():
         tracking_ms=0.4,
         fsm_evaluation_ms=0.3,
         total_t1_ms=15.2,
+        total_system_ms=15.2,
     )
     safety_output = SafetyOutput(
         trip=False,

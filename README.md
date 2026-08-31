@@ -323,6 +323,7 @@ Para evitar la conflación entre la **topología espacial** y la **acumulación 
   * **[ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md):** Gestión de Oclusiones en Extremidades Inferiores y Propagación de Confianza.
   * **[ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md):** Epistemología de Estados de Observación Kalman, Ruido Espectral y Desescalada Asimétrica.
   * **[ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md):** Desacoplamiento de Autómata Espacial y Clasificación Temporal de Dwell en Regiones Ortogonales (Statecharts).
+  * **[ADR-010](docs/decisions/adr-010-dual-latency-profiling-iso13855.md):** Doble Horizonte Temporal de Latencia en Edge AI Industrial ($T_{\text{system}}$ vs $T_{\text{event}}$ - ISO 13855 / IEC 61496).
 
 ---
 

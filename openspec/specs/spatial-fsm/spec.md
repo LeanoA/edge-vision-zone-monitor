@@ -29,6 +29,14 @@ The spatial FSM SHALL evaluate spatial occupancy and temporal dwell duration as 
 - **WHEN** the track completes $N_{\text{release}}$ consecutive `OBSERVED` frames outside $P_{\text{release}}$
 - **THEN** `occupancy_state` SHALL transition to `OUTSIDE`, `trip` SHALL de-assert to `False`, and `dwell_state` SHALL reset to `NONE`.
 
+### Requirement: Physical Entry Tracking and Event Reaction Latency
+The `SpatialFSM` SHALL track the initial physical entry timestamp of any track entering $P_{\text{danger}}$ and compute the exact event reaction latency upon asserting `trip = True`.
+
+#### Scenario: Computing event latency on intrusion trip
+- **GIVEN** a track entering $P_{\text{danger}}$ at timestamp $t_{\text{entry}}$
+- **WHEN** the FSM completes confirmation debounce and asserts `trip = True` at timestamp $t_{\text{trip}}$
+- **THEN** `SafetyOutput.event_latency_ms` SHALL be populated with $(t_{\text{trip}} - t_{\text{entry}}) \times 1000.0$.
+
 ### Requirement: 6-State Safety Automaton Definition and State Transitions
 The `SpatialFSM` MUST implement supervisory states (`SAFE`, `WARNING_APPROACH`, `DANGER_INTRUSION`, `MUTED`, `FAULT`, `LOCKOUT`) alongside the orthogonal occupancy and dwell statecharts.
 

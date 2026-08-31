@@ -52,6 +52,14 @@ class DemoSummary:
     latencies_p50_ms: float
     latencies_p95_ms: float
     latencies_p99_ms: float
+    system_latencies_mean_ms: float = 0.0
+    system_latencies_p50_ms: float = 0.0
+    system_latencies_p95_ms: float = 0.0
+    system_latencies_p99_ms: float = 0.0
+    event_latency_mean_ms: Optional[float] = None
+    event_latency_p50_ms: Optional[float] = None
+    event_latency_p95_ms: Optional[float] = None
+    event_latency_p99_ms: Optional[float] = None
     state_counts: Dict[str, int] = field(default_factory=dict)
 
     def format_text(self) -> str:
@@ -64,14 +72,34 @@ class DemoSummary:
             f"Total Elapsed Time     : {self.elapsed_time_s:.2f} s",
             f"Average Throughput     : {self.average_fps:.1f} FPS",
             "-" * 70,
-            "Reaction Latency Profile (T1):",
+            "Pipeline Latency Profile (T1 - Processing Stages):",
             f"  • Mean Latency       : {self.latencies_mean_ms:.2f} ms",
             f"  • p50 (Median)       : {self.latencies_p50_ms:.2f} ms",
             f"  • p95                : {self.latencies_p95_ms:.2f} ms",
             f"  • p99                : {self.latencies_p99_ms:.2f} ms",
+        ]
+        if self.system_latencies_mean_ms > 0.0:
+            lines.extend([
+                "-" * 70,
+                "System Latency Profile (T_system - Capture + Processing):",
+                f"  • Mean System Latency: {self.system_latencies_mean_ms:.2f} ms",
+                f"  • p50 (Median)       : {self.system_latencies_p50_ms:.2f} ms",
+                f"  • p95                : {self.system_latencies_p95_ms:.2f} ms",
+                f"  • p99                : {self.system_latencies_p99_ms:.2f} ms",
+            ])
+        if self.event_latency_mean_ms is not None:
+            lines.extend([
+                "-" * 70,
+                "Safety Event Reaction Latency Profile (T_event - Physical Incursion to Trip):",
+                f"  • Mean Event Latency : {self.event_latency_mean_ms:.2f} ms",
+                f"  • p50 (Median)       : {self.event_latency_p50_ms:.2f} ms",
+                f"  • p95                : {self.event_latency_p95_ms:.2f} ms",
+                f"  • p99                : {self.event_latency_p99_ms:.2f} ms",
+            ])
+        lines.extend([
             "-" * 70,
             "Safety States Occurrences:",
-        ]
+        ])
         for state, count in sorted(self.state_counts.items()):
             pct = (count / max(1, self.total_frames)) * 100.0
             lines.append(f"  • {state:<20}: {count:5d} frames ({pct:5.1f}%)")
@@ -95,6 +123,8 @@ class DemoRunner:
 
         self._frame_count = 0
         self._latencies_t1: List[float] = []
+        self._latencies_system: List[float] = []
+        self._event_latencies: List[float] = []
         self._state_counts: Dict[str, int] = {}
         self._start_time: float = 0.0
         self._end_time: float = 0.0
@@ -152,21 +182,29 @@ class DemoRunner:
             self.config.output_events.parent.mkdir(parents=True, exist_ok=True)
             self.events_file = open(self.config.output_events, "w", encoding="utf-8")
 
-    def process_frame(self, frame: np.ndarray) -> Tuple[PipelineResult, np.ndarray]:
+    def process_frame(
+        self,
+        frame: np.ndarray,
+        capture_timestamp: Optional[float] = None,
+    ) -> Tuple[PipelineResult, np.ndarray]:
         """
         Execute single frame evaluation, dual compositing, and telemetry logging.
         """
         if self.pipeline is None or self.visualizer is None:
             raise RuntimeError("DemoRunner is not initialized. Call initialize() first.")
 
-        # Run 6-stage Safety Pipeline
-        result = self.pipeline.process_frame(frame)
+        # Run 6-stage Safety Pipeline with optional capture timestamp
+        result = self.pipeline.process_frame(frame, capture_timestamp=capture_timestamp)
 
         # Composite Dual View (Perspective + BEV)
         composite = self.visualizer.render(frame, result, layout=self.config.layout)
 
         # Record latencies & state telemetry
         self._latencies_t1.append(result.latencies.total_t1_ms)
+        self._latencies_system.append(result.latencies.total_system_ms)
+        if result.safety_output.event_latency_ms is not None:
+            self._event_latencies.append(result.safety_output.event_latency_ms)
+
         state_name = result.safety_output.state.value
         self._state_counts[state_name] = self._state_counts.get(state_name, 0) + 1
 
@@ -180,6 +218,7 @@ class DemoRunner:
                 "dwell_state": result.safety_output.dwell_state.value,
                 "dwell_time_s": round(result.safety_output.dwell_time_s, 2),
                 "trip_active": bool(result.safety_output.trip),
+                "event_latency_ms": round(result.safety_output.event_latency_ms, 2) if result.safety_output.event_latency_ms is not None else None,
                 "tracks": [
                     {
                         "track_id": t.track_id,
@@ -191,6 +230,7 @@ class DemoRunner:
                     for t in result.tracks
                 ],
                 "latencies_ms": {
+                    "capture": round(result.latencies.capture_ms, 2),
                     "preprocess": round(result.latencies.preprocess_ms, 2),
                     "inference": round(result.latencies.inference_ms, 2),
                     "keypoint_extract": round(result.latencies.keypoint_extract_ms, 2),
@@ -198,6 +238,7 @@ class DemoRunner:
                     "tracking": round(result.latencies.tracking_ms, 2),
                     "fsm": round(result.latencies.fsm_evaluation_ms, 2),
                     "total_t1": round(result.latencies.total_t1_ms, 2),
+                    "total_system": round(result.latencies.total_system_ms, 2),
                 },
             }
             self.events_file.write(json.dumps(record) + "\n")
@@ -300,13 +341,31 @@ class DemoRunner:
         avg_fps = self._frame_count / elapsed
 
         if len(self._latencies_t1) > 0:
-            arr = np.array(self._latencies_t1, dtype=np.float64)
-            mean_lat = float(np.mean(arr))
-            p50 = float(np.percentile(arr, 50))
-            p95 = float(np.percentile(arr, 95))
-            p99 = float(np.percentile(arr, 99))
+            arr_t1 = np.array(self._latencies_t1, dtype=np.float64)
+            mean_lat = float(np.mean(arr_t1))
+            p50 = float(np.percentile(arr_t1, 50))
+            p95 = float(np.percentile(arr_t1, 95))
+            p99 = float(np.percentile(arr_t1, 99))
         else:
             mean_lat = p50 = p95 = p99 = 0.0
+
+        if len(self._latencies_system) > 0:
+            arr_sys = np.array(self._latencies_system, dtype=np.float64)
+            sys_mean = float(np.mean(arr_sys))
+            sys_p50 = float(np.percentile(arr_sys, 50))
+            sys_p95 = float(np.percentile(arr_sys, 95))
+            sys_p99 = float(np.percentile(arr_sys, 99))
+        else:
+            sys_mean = sys_p50 = sys_p95 = sys_p99 = 0.0
+
+        if len(self._event_latencies) > 0:
+            arr_evt = np.array(self._event_latencies, dtype=np.float64)
+            evt_mean = float(np.mean(arr_evt))
+            evt_p50 = float(np.percentile(arr_evt, 50))
+            evt_p95 = float(np.percentile(arr_evt, 95))
+            evt_p99 = float(np.percentile(arr_evt, 99))
+        else:
+            evt_mean = evt_p50 = evt_p95 = evt_p99 = None
 
         return DemoSummary(
             total_frames=self._frame_count,
@@ -316,6 +375,14 @@ class DemoRunner:
             latencies_p50_ms=p50,
             latencies_p95_ms=p95,
             latencies_p99_ms=p99,
+            system_latencies_mean_ms=sys_mean,
+            system_latencies_p50_ms=sys_p50,
+            system_latencies_p95_ms=sys_p95,
+            system_latencies_p99_ms=sys_p99,
+            event_latency_mean_ms=evt_mean,
+            event_latency_p50_ms=evt_p50,
+            event_latency_p95_ms=evt_p95,
+            event_latency_p99_ms=evt_p99,
             state_counts=dict(self._state_counts),
         )
 

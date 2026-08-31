@@ -115,6 +115,26 @@ def run_benchmark(
     )
 
 
+@dataclass(frozen=True)
+class PipelineBenchmarkMetrics:
+    """Immutable container for full safety pipeline benchmark results."""
+    iterations: int
+    t_capture_p50_ms: float
+    t_pre_p50_ms: float
+    t_infer_p50_ms: float
+    t_pose_p50_ms: float
+    t_geom_p50_ms: float
+    t_track_p50_ms: float
+    t_fsm_p50_ms: float
+    t_total_t1_p50_ms: float
+    t_total_t1_p95_ms: float
+    t_total_t1_p99_ms: float
+    t_total_system_p50_ms: float
+    t_total_system_p95_ms: float
+    t_total_system_p99_ms: float
+    fps: float
+
+
 def format_benchmark_table(metrics: BenchmarkMetrics) -> str:
     """Format benchmark metrics into an aligned text summary table."""
     status = "PASS (p95 <= 30.0 ms)" if metrics.passed_budget else "FAIL (p95 > 30.0 ms)"

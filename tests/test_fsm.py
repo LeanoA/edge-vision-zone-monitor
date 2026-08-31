@@ -351,3 +351,47 @@ class TestSpatialFSM:
         assert out_reset.state == SafetyState.SAFE
         assert out_reset.occupancy_state == OccupancyState.OUTSIDE
         assert out_reset.trip is False
+
+    def test_event_reaction_latency_debounced_intrusion(self, standard_zone_config):
+        """Verify T_event calculation accurately captures physical debounce delay."""
+        fsm = SpatialFSM(standard_zone_config)
+        fsm.update([], timestamp=0.0)
+
+        t1 = make_track(1, (2.0, 2.0), vel=(0.0, 0.5))  # normal velocity vn < 1.6
+
+        # Frame 1 at t=1.000 (initial physical entry)
+        out1 = fsm.update([t1], timestamp=1.000)
+        assert out1.occupancy_state == OccupancyState.ENTER_PENDING
+        assert out1.trip is False
+        assert out1.event_latency_ms is None
+
+        # Frame 2 at t=1.033
+        out2 = fsm.update([t1], timestamp=1.033)
+        assert out2.occupancy_state == OccupancyState.ENTER_PENDING
+        assert out2.trip is False
+        assert out2.event_latency_ms is None
+
+        # Frame 3 at t=1.066 (n_confirm=3 reached -> trip asserted)
+        out3 = fsm.update([t1], timestamp=1.066)
+        assert out3.occupancy_state == OccupancyState.INSIDE
+        assert out3.trip is True
+        assert out3.event_latency_ms is not None
+        assert out3.event_latency_ms == pytest.approx(66.0, abs=1.0)
+
+    def test_event_reaction_latency_fast_approach_instant_bypass(self, standard_zone_config):
+        """Verify T_event under ISO 13855 fast approach bypass has minimal debounce delay."""
+        fsm = SpatialFSM(standard_zone_config)
+        fsm.update([], timestamp=0.0)
+
+        # Fast approach in warning zone (vn >= 1.6 m/s toward danger zone at X=1.0)
+        fast_track = make_track(1, (0.8, 2.0), vel=(1.8, 0.2))
+        out1 = fsm.update([fast_track], timestamp=1.000)
+        assert out1.warning is True
+
+        # Next frame: enters danger zone at t=1.033 -> instant bypass on first frame inside
+        inside_danger = make_track(1, (1.05, 2.0), vel=(1.8, 0.2))
+        out2 = fsm.update([inside_danger], timestamp=1.033)
+        assert out2.occupancy_state == OccupancyState.INSIDE
+        assert out2.trip is True
+        assert out2.event_latency_ms is not None
+        assert out2.event_latency_ms == pytest.approx(0.0, abs=0.1)

@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class StageLatencies:
     """High-resolution per-stage and total reaction latencies in milliseconds."""
+    capture_ms: float
     preprocess_ms: float
     inference_ms: float
     keypoint_extract_ms: float
@@ -31,6 +32,7 @@ class StageLatencies:
     tracking_ms: float
     fsm_evaluation_ms: float
     total_t1_ms: float
+    total_system_ms: float
 
 
 @dataclass
@@ -360,13 +362,18 @@ class SafetyPipeline:
 
         return detections
 
-    def process_frame(self, frame: np.ndarray) -> PipelineResult:
+    def process_frame(
+        self,
+        frame: np.ndarray,
+        capture_timestamp: Optional[float] = None,
+    ) -> PipelineResult:
         """
-        Execute synchronous 6-stage frame processing with high-res latency profiling
-        and fail-safe fault containment.
+        Execute synchronous 6-stage frame processing with high-res latency profiling,
+        capture-to-decision latency tracking, and fail-safe fault containment.
         """
         self._frame_id += 1
         t_start = time.perf_counter()
+        t_capture = max(0.0, (t_start - float(capture_timestamp)) * 1000.0) if capture_timestamp is not None else 0.0
 
         try:
             if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] != 3:
@@ -423,6 +430,7 @@ class SafetyPipeline:
             t_total = (time.perf_counter() - t_start) * 1000.0
 
             latencies = StageLatencies(
+                capture_ms=t_capture,
                 preprocess_ms=t_preprocess,
                 inference_ms=t_infer,
                 keypoint_extract_ms=t_kp,
@@ -430,6 +438,7 @@ class SafetyPipeline:
                 tracking_ms=t_track,
                 fsm_evaluation_ms=t_fsm,
                 total_t1_ms=t_total,
+                total_system_ms=t_capture + t_total,
             )
 
             return PipelineResult(
@@ -446,6 +455,7 @@ class SafetyPipeline:
             # Fail-safe fault containment: set FSM to FAULT, assert trip=True
             fault_output = self.fsm.trigger_fault(f"Fault containment caught exception: {e}")
             latencies = StageLatencies(
+                capture_ms=t_capture,
                 preprocess_ms=0.0,
                 inference_ms=0.0,
                 keypoint_extract_ms=0.0,
@@ -453,6 +463,7 @@ class SafetyPipeline:
                 tracking_ms=0.0,
                 fsm_evaluation_ms=0.0,
                 total_t1_ms=t_total,
+                total_system_ms=t_capture + t_total,
             )
             return PipelineResult(
                 frame_id=self._frame_id,

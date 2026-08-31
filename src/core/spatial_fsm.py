@@ -94,6 +94,7 @@ class SafetyOutput:
     message: str = ""
     fault_reason: Optional[str] = None
     lockout_active: bool = False
+    event_latency_ms: Optional[float] = None
 
 
 @dataclass
@@ -105,6 +106,7 @@ class TrackSpatialRecord:
     fast_approach: bool = False
     first_seen_inside_ts: Optional[float] = None
     first_seen_warning_ts: Optional[float] = None
+    first_danger_entry_ts: Optional[float] = None
     dwell_time_s: float = 0.0
     last_observed_dwell_s: float = 0.0
 
@@ -396,6 +398,8 @@ class SpatialFSM:
 
                 # 1. Spatial Debounce Logic
                 if in_danger:
+                    if record.first_danger_entry_ts is None:
+                        record.first_danger_entry_ts = now
                     record.clean_count = 0
                     if fast_approach or record.fast_approach:
                         # ISO 13855 fast approach: bypass confirmation debounce
@@ -407,9 +411,12 @@ class SpatialFSM:
                     record.clean_count = 0
                     if tid not in self._violating_track_ids:
                         record.danger_count = 0
+                        record.first_danger_entry_ts = None
                 else:
                     # Completely outside P_release
                     record.danger_count = 0
+                    if tid not in self._violating_track_ids:
+                        record.first_danger_entry_ts = None
                     if obs_status == ObservationStatus.OBSERVED:
                         record.clean_count += 1
 
@@ -427,6 +434,7 @@ class SpatialFSM:
                     elif not in_release and record.clean_count >= self._config.n_release:
                         self._violating_track_ids.discard(tid)
                         record.first_seen_inside_ts = None
+                        record.first_danger_entry_ts = None
                         record.dwell_time_s = 0.0
                         record.last_observed_dwell_s = 0.0
                     else:
@@ -501,7 +509,18 @@ class SpatialFSM:
             if self._occupancy_state == OccupancyState.OUTSIDE:
                 self._last_dwell_time = 0.0
 
-        # 6. Trip and Warning Signals
+        # 6. Calculate Event Reaction Latency (T_event)
+        event_latency_ms: Optional[float] = None
+        if len(self._violating_track_ids) > 0:
+            latencies = [
+                (now - self._track_records[tid].first_danger_entry_ts) * 1000.0
+                for tid in self._violating_track_ids
+                if tid in self._track_records and self._track_records[tid].first_danger_entry_ts is not None
+            ]
+            if latencies:
+                event_latency_ms = max(0.0, float(min(latencies)))
+
+        # 7. Trip and Warning Signals
         if self._is_muted:
             self._current_state = SafetyState.MUTED
             self._is_tripped = False
@@ -533,4 +552,5 @@ class SpatialFSM:
             violating_tracks=sorted(list(self._violating_track_ids)),
             timestamp=now,
             message=msg,
+            event_latency_ms=event_latency_ms,
         )
