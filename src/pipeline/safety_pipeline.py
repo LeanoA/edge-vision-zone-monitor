@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from src.core.kalman_filter import AnchorSource, PositionEstimate, Track
+from src.core.kalman_filter import AnchorSource, ObservationStatus, PositionEstimate, Track
 from src.core.spatial_fsm import SafetyOutput
 
 if TYPE_CHECKING:

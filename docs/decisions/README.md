@@ -24,3 +24,4 @@ Cada documento debe seguir el formato estándar:
 | [ADR-005](adr-005-homography-vectorization-geometric-validation.md) | Validación Geométrica Preventiva y Proyección Vectorizada en Homografía Planar | Aceptado | 2026-08-29 |
 | [ADR-006](adr-006-prepared-geometries-dynamic-debounce-bypass.md) | Geometrías Preparadas y Bypass Dinámico de Debounce en FSM de Seguridad (ISO 13855) | Aceptado | 2026-08-30 |
 | [ADR-007](adr-007-occlusion-handling-confidence-propagation.md) | Gestión de Oclusiones en Extremidades Inferiores y Propagación de Confianza | Aceptado | 2026-08-30 |
+| [ADR-008](adr-008-kalman-epistemology-noise-divergence.md) | Epistemología de Estados de Observación Kalman, Ruido Espectral y Desescalada Asimétrica | Aceptado | 2026-08-30 |

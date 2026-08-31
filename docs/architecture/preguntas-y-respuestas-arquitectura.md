@@ -148,9 +148,35 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
     4. Si la oclusión persiste $> 160\text{ ms}$, se evalúa fallback a bbox o eliminación segura.
   * **Propagación de Confianza:** El sistema no emite simples tuplas `(x, y)`; conceptualmente emite:
     ```python
-    PositionEstimate(xy_m, confidence, source="ankles | bbox | predicted")
+    PositionEstimate(xy_m, confidence, source="ankles | bbox | predicted", status="OBSERVED | PREDICTED | STALE", missed_count=k)
     ```
     Esto permite que la FSM distinga entre una alarma con certeza física directa y una alarma sostenida por inercia cinemática.
+
+### P16: ¿Por qué la predicción de Kalman NO es verdad física y cómo se calculan los horizontes de divergencia cinemática?
+* **Contexto Normativo y Epistemológico:** En dispositivos de protección basados en visión (VBPD / ISO 13855:2024), cuando un operario sufre una oclusión momentánea (pies pasando tras un pallet o soporte), el Filtro de Kalman continúa proyectando su movimiento a lazo abierto (*dead reckoning*).
+* **Fundamento Físico-Matemático:**
+  * **"Predicción no es Verdad":** La predicción matemática $\hat{\mathbf{x}}_k = F \hat{\mathbf{x}}_{k-1}$ asume velocidad constante. El operario real es libre de acelerar, frenar, tropezar o girar. Sin fotones del sensor, la certidumbre física se degrada progresivamente.
+  * **Fallo de la Derivada Discreta ($\Delta x / \Delta t$):** El jitter de keypoints ($\sigma \approx 15\text{ mm}$) amplificado a 30 FPS ($\Delta t = 0.0333\text{ s}$) produce una dispersión de velocidad ficticia $\sigma_v = \frac{\sqrt{2} \sigma}{\Delta t} \approx 0.64\text{ m/s}$. El límite $3\sigma \approx 1.91\text{ m/s}$ superaría permanentemente el umbral industrial ISO 13855 ($K = 1.6\text{ m/s}$) incluso en trabajadores quietos.
+  * **Justificación de Velocidad Constante (CV) frente a Aceleración Constante (CA):**
+    * La aceleración humana biomecánica máxima es $a_{\max} \approx 3.5\text{ m/s}^2$ ($\mu \le 0.7$).
+    * En un solo cuadro a 30 FPS, el desplazamiento por aceleración es $\Delta x_{\text{acc}} = \frac{1}{2} a \Delta t^2 \approx 1.94\text{ mm}$, casi un orden de magnitud menor al piso de ruido de los keypoints ($15\text{ mm}$). Es físicamente inobservable en un único cuadro.
+    * Estimar aceleración con un modelo CA exige la segunda diferencia discreta, cuya varianza $\text{Var}(\hat{a}) = \frac{6}{\Delta t^4} \sigma_{\text{pos}}^2$ arroja un error estándar $\sigma_a \approx 33.1\text{ m/s}^2 \ (> 3.3\text{ g})$, desestabilizando el filtro. Por ello, el modelo CV es el óptimo.
+  * **Envolvente Cuadrática de Divergencia vs Colchón de Histéresis ($\Delta d = 200\text{ mm}$):**
+    Durante el *coasting*, la cota máxima de divergencia física obedece a $\|\Delta \mathbf{p}(t)\| \le \frac{1}{2} a_{\max} t^2 + v_0 t (1 - \cos \theta)$.
+    * $k=0$ ($t = 0\text{ ms}$): $\mathbf{0\text{ mm}}$ $\to$ **`OBSERVED`** (Hecho empírico).
+    * $1 \le k \le 3$ ($t \le 100\text{ ms}$): Divergencia $\le 175\text{ mm} < \Delta d$ ($200\text{ mm}$) $\to$ **`PREDICTED`** (Seguro para tracking y disparo).
+    * $4 \le k \le 5$ ($133\text{ ms} \le t \le 167\text{ ms}$): Divergencia $240\text{ mm} - 308\text{ mm} > \Delta d$ $\to$ **`STALE`** (Buffer superado, puramente especulativo).
+    * $k > 5$ ($t > 167\text{ ms}$): Pista eliminada (`EXPIRED`).
+  * **Detalle Completo:** Ver [ADR-008](../decisions/adr-008-kalman-epistemology-noise-divergence.md).
+
+### P17: ¿Por qué la desescalada de seguridad es asimétrica y qué ocurre cuando un intruso desaparece dentro de la zona de peligro?
+* **Contexto de Seguridad Funcional (ISO 13849-1 / IEC 61508):** Los modos de fallo ante la vida humana son inherentemente asimétricos: una falsa alarma detiene la producción (costo económico), pero un falso silenciamiento de alarma reinicia la máquina con un operario en peligro (riesgo vital o fatalidad).
+* **Los Cuatro Invariantes de Seguridad Asimétrica:**
+  1. **Invariante I (Escalada Proactiva Fail-Safe):** La incursión en la zona de peligro $P_{\text{danger}}$ puede y debe disparar la parada de emergencia (`trip = True`) ante cualquier estado (`OBSERVED`, `PREDICTED` o `STALE`). Ante la duda cinemática, se preserva la vida.
+  2. **Invariante II (Desescalada Estrictamente Verificada por Fotones):** Un intruso que sale fuera de $P_{\text{release}}$ NO puede desescalar la alarma mediante extrapolaciones cinemáticas (`PREDICTED` / `STALE`). Requiere estrictamente $N_{\text{release}} = 5$ cuadros consecutivos con estatus **`OBSERVED`** comprobado para confirmar visualmente que el operario ya no está dentro de la zona peligrosa.
+  3. **Invariante III (Enclavamiento por Desaparición en Peligro - Missing Target Lockout):** Si un intruso en zona de peligro deja de detectarse (se poda al superar $k > 5$ cuadros sin verse), el sistema jamás debe asumir que "se evaporó" y apagar la alarma. Automáticamente enclava la FSM en **`LOCKOUT`** (`trip = True`), exigiendo inspección física de la celda y un reinicio manual autorizado (`SpatialFSM.reset()`).
+  4. **Invariante IV (Congelamiento de Dwell Time):** El tiempo de permanencia en la zona de advertencia mide exposición acumulada al riesgo. Durante oclusiones (`PREDICTED` o `STALE`), el contador de dwell time se **congela** en el último valor observado empíricamente y no suma tiempo fantasma mientras la persona no sea visible.
+* **Detalle Completo:** Ver [ADR-008](../decisions/adr-008-kalman-epistemology-noise-divergence.md).
 
 
 

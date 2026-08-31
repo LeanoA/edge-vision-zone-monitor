@@ -50,9 +50,9 @@ Profiling de Latencia (Desglose T1 por etapa y percentiles)
 * **Person Pose:** Inferencia local con `yolo11n-pose` en ONNX Runtime desacoplada del hardware subyacente en [`src/inference/onnx_engine.py`](src/inference/onnx_engine.py).
 * **Ground Point:** Extracción del punto de contacto físico con el suelo mediante el punto medio de tobillos (`left_ankle: 15`, `right_ankle: 16`) con umbral de confianza (`extract_ankle_anchor`).
 * **Homografía:** Proyección perspectiva 2D a plano métrico ($Z_w=0$) mediante DLT ($3 \times 3$) con validación geométrica de condicionamiento en [`src/core/homography.py`](src/core/homography.py).
-* **Filtrado Espacial & Tracking:** Filtro de Kalman métrico 2D $(X, Y, \dot{X}, \dot{Y})$ con modelo cinemático CV, asociación multiobjeto y modo *coasting* ante oclusiones temporales en [`src/core/kalman_filter.py`](src/core/kalman_filter.py).
-* **Gestión de Zonas Restringidas:** FSM con histéresis espacial ($P_{\text{danger}}$ vs $P_{\text{release}}$), temporal ($N_{\text{confirm}}$) y bypass dinámico por velocidad de aproximación $v_n \ge 1.6\text{ m/s}$ (ISO 13855) en [`src/core/spatial_fsm.py`](src/core/spatial_fsm.py).
-* **Control de Permanencia (Dwell Time):** Medición de tiempo acumulado dentro de la zona protegida con transiciones automáticas a advertencia y violación en [`src/core/spatial_fsm.py`](src/core/spatial_fsm.py).
+* **Filtrado Espacial & Tracking:** Filtro de Kalman métrico 2D $(X, Y, \dot{X}, \dot{Y})$ con modelo cinemático CV, asociación multiobjeto y marco epistemológico de 3 estados (`OBSERVED`, `PREDICTED`, `STALE`) con decaimiento de confianza y envolvente de divergencia cuadrática en [`src/core/kalman_filter.py`](src/core/kalman_filter.py).
+* **Gestión de Zonas Restringidas:** FSM con histéresis espacial ($P_{\text{danger}}$ vs $P_{\text{release}}$), temporal ($N_{\text{confirm}}$), bypass dinámico por velocidad de aproximación $v_n \ge 1.6\text{ m/s}$ (ISO 13855), salvaguarda asimétrica (desescalada sujeta a evidencia óptica `OBSERVED`) y enclavamiento en `LOCKOUT` por desaparición de intruso en [`src/core/spatial_fsm.py`](src/core/spatial_fsm.py).
+* **Control de Permanencia (Dwell Time):** Medición de tiempo acumulado dentro de la zona protegida con congelamiento de tiempo durante extrapolación cinemática (*coasting*) y transiciones automáticas a advertencia y violación en [`src/core/spatial_fsm.py`](src/core/spatial_fsm.py).
 * **Visualización Dual & Event Log:** Compositor en tiempo real de vista en perspectiva con overlays y vista cenital métrica (Bird's-Eye View), con registro estructurado de eventos de seguridad en [`src/utils/visualizer.py`](src/utils/visualizer.py).
 * **Profiling de Latencia:** Registro y benchmark de tiempos de respuesta por etapa ($T_1 = t_{\text{pre}} + t_{\text{inf}} + t_{\text{pose}} + t_{\text{proj}} + t_{\text{track}} + t_{\text{fsm}}$) con percentiles p50, p95 y p99 en [`scripts/benchmark.py`](scripts/benchmark.py).
 
@@ -110,6 +110,13 @@ Este proyecto sirve como plataforma experimental para responder preguntas técni
     4. *Oclusión prolongada:* Fallback al borde inferior de la bounding box con penalización de confianza o eliminación controlada del track.
   * *Propagación de Confianza (Confidence Propagation):* Las posiciones métricas no son números abstractos; viajan tipadas como `PositionEstimate(xy_m, confidence, source)`, permitiendo a la FSM modular su toma de decisiones según la fiabilidad de la observación.
   * *Validación:* [`tests/test_pipeline.py`](tests/test_pipeline.py) y [`tests/test_kalman.py`](tests/test_kalman.py).
+* **Q7: ¿Por qué la predicción de Kalman no es verdad física y por qué la desescalada de seguridad debe ser asimétrica? ([Ver ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md))**
+  * *Conflación Epistemológica:* En ausencia de fotones, la predicción $\hat{\mathbf{x}}_k = F\hat{\mathbf{x}}_{k-1}$ es una conjetura a lazo abierto. Un trabajador puede frenar o tropezar sin ser visto; la divergencia cuadrática máxima $\|\Delta \mathbf{p}(t)\| \le \frac{1}{2} a_{\max} t^2 + v_0 t (1 - \cos \theta)$ supera el margen de histéresis ($\Delta d = 200\text{ mm}$) a partir del 4to cuadro ($>100\text{ ms}$).
+  * *Modelo de Tres Estados:* Se formaliza el estado de observación: `OBSERVED` ($k=0$), `PREDICTED` ($1 \le k \le 3$, seguro dentro de $\Delta d$) y `STALE` ($4 \le k \le 5$, puramente especulativo).
+  * *Salvaguarda Asimétrica:* Escalar hacia el peligro (`DANGER_INTRUSION`) es fail-safe y está permitido bajo cualquier estado (`OBSERVED`, `PREDICTED`, `STALE`). Desescalar hacia `SAFE` exige $N_{\text{release}}$ cuadros estrictamente `OBSERVED` fuera de $P_{\text{release}}$.
+  * *Enclavamiento por Desaparición:* Un intruso que desaparece de los sensores dentro de la zona de peligro enclava en `LOCKOUT` con relé abierto hasta supervisión e intervención humana (`SpatialFSM.reset()`).
+  * *Congelamiento de Dwell:* El tiempo de permanencia no se incrementa con predicciones fantasma; se congela durante oclusión.
+  * *Validación:* [`tests/test_kalman.py`](tests/test_kalman.py) y [`tests/test_fsm.py`](tests/test_fsm.py).
 
 ---
 
@@ -262,6 +269,8 @@ Para evitar oscilaciones (*flickering*) en los límites de las zonas restringida
   * **[ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md):** Gestión de Oscilaciones Espaciales mediante Spatial FSM + Filtro Kalman.
   * **[ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md):** Validación Geométrica Preventiva y Proyección Vectorizada en Homografía Planar.
   * **[ADR-006](docs/decisions/adr-006-prepared-geometries-dynamic-debounce-bypass.md):** Geometrías Preparadas y Bypass Dinámico de Debounce en FSM de Seguridad (ISO 13855).
+  * **[ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md):** Gestión de Oclusiones en Extremidades Inferiores y Propagación de Confianza.
+  * **[ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md):** Epistemología de Estados de Observación Kalman, Ruido Espectral y Desescalada Asimétrica.
 
 ---
 

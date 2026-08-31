@@ -8,7 +8,7 @@ import time
 import pytest
 import numpy as np
 
-from src.core.kalman_filter import MetricKalmanFilter, Track
+from src.core.kalman_filter import MetricKalmanFilter, ObservationStatus, Track
 from src.core.spatial_fsm import (
     SafetyOutput,
     SafetyState,
@@ -33,13 +33,25 @@ def standard_zone_config() -> ZoneConfig:
     )
 
 
-def make_track(track_id: int, pos: tuple, vel: tuple = (0.0, 0.0)) -> Track:
-    """Helper to create a confirmed track at specified position and velocity."""
-    trk = Track(track_id=track_id, initial_position=pos, n_confirm=1)
+def make_track(
+    track_id: int,
+    pos: tuple,
+    vel: tuple = (0.0, 0.0),
+    missed_count: int = 0,
+) -> Track:
+    """Helper to create a confirmed track at specified position, velocity, and missed_count."""
+    trk = Track(track_id=track_id, initial_position=pos, n_confirm=1, max_missed=10)
     # Set internal velocity if specified
     if vel != (0.0, 0.0):
         trk.filter._x[2] = vel[0]
         trk.filter._x[3] = vel[1]
+    if missed_count > 0:
+        for _ in range(missed_count):
+            trk.predict()
+            trk.mark_missed()
+    # Ensure current position remains at pos for spatial evaluation
+    trk.filter._x[0] = pos[0]
+    trk.filter._x[1] = pos[1]
     return trk
 
 
@@ -306,3 +318,129 @@ class TestSpatialFSM:
         avg_latency_ms = (sum(times) / len(times)) * 1000.0
         # Target is < 0.1 ms (100 microseconds)
         assert avg_latency_ms < 0.10
+
+    def test_asymmetric_safety_deescalation(self, standard_zone_config):
+        """Verify asymmetric safety de-escalation behavior (Task 2.1)."""
+        fsm = SpatialFSM(standard_zone_config)
+        fsm.update([])
+
+        # 1. Danger escalation on coasting tracks (PREDICTED or STALE)
+        t_predicted = make_track(1, (2.0, 2.0), missed_count=2)
+        assert t_predicted.observation_status == ObservationStatus.PREDICTED
+        for _ in range(3):
+            out = fsm.update([t_predicted])
+        assert out.state == SafetyState.DANGER_INTRUSION
+        assert out.trip is True
+        assert 1 in out.violating_tracks
+
+        # 2. Coasting de-escalation prevention:
+        # Move outside P_release (X=3.5 > 3.2), but with PREDICTED status
+        t_coast_outside = make_track(1, (3.5, 2.0), missed_count=2)
+        assert t_coast_outside.observation_status == ObservationStatus.PREDICTED
+        for _ in range(10):
+            out = fsm.update([t_coast_outside])
+            assert out.state == SafetyState.DANGER_INTRUSION
+            assert out.trip is True
+            assert 1 in out.violating_tracks
+            assert fsm._track_records[1].clean_count == 0
+
+        # With STALE status as well
+        t_stale_outside = make_track(1, (3.5, 2.0), missed_count=4)
+        assert t_stale_outside.observation_status == ObservationStatus.STALE
+        for _ in range(5):
+            out = fsm.update([t_stale_outside])
+            assert out.state == SafetyState.DANGER_INTRUSION
+            assert out.trip is True
+            assert 1 in out.violating_tracks
+            assert fsm._track_records[1].clean_count == 0
+
+        # 3. Verified optical de-escalation:
+        # Track with OBSERVED status outside P_release
+        t_observed_outside = make_track(1, (3.5, 2.0), missed_count=0)
+        assert t_observed_outside.observation_status == ObservationStatus.OBSERVED
+        for i in range(1, 6):
+            out = fsm.update([t_observed_outside])
+            if i < 5:
+                assert out.state == SafetyState.DANGER_INTRUSION
+                assert out.trip is True
+                assert fsm._track_records[1].clean_count == i
+            else:
+                assert out.state == SafetyState.SAFE
+                assert out.trip is False
+                assert len(out.violating_tracks) == 0
+
+    def test_warning_zone_dwell_freezing(self, standard_zone_config):
+        """Verify warning zone dwell time freezing during coasting (Task 2.3)."""
+        fsm = SpatialFSM(standard_zone_config)
+        fsm.update([], timestamp=0.0)
+
+        # Scenario 1: Target in warning zone with OBSERVED accumulates dwell_time_s
+        t_observed = make_track(1, (0.7, 2.0), missed_count=0)
+        out1 = fsm.update([t_observed], timestamp=1.0)
+        assert out1.state == SafetyState.WARNING_APPROACH
+        assert out1.dwell_time_s == 0.0
+
+        out2 = fsm.update([t_observed], timestamp=2.0)
+        assert out2.dwell_time_s == pytest.approx(1.0, abs=1e-3)
+
+        out3 = fsm.update([t_observed], timestamp=2.8)
+        assert out3.dwell_time_s == pytest.approx(1.8, abs=1e-3)
+
+        # Scenario 2: Target transitions to PREDICTED / STALE -> dwell_time_s freezes at 1.8s
+        t_predicted = make_track(1, (0.7, 2.0), missed_count=2)
+        assert t_predicted.observation_status == ObservationStatus.PREDICTED
+        for t_step in [3.0, 3.5, 4.0]:
+            out_freeze = fsm.update([t_predicted], timestamp=t_step)
+            assert out_freeze.dwell_time_s == pytest.approx(1.8, abs=1e-3)
+
+        # Scenario 3: Target re-observed in warning zone resumes accumulation
+        # Monotonic resumption from frozen baseline + active frame increment
+        t_reobserved = make_track(1, (0.7, 2.0), missed_count=0)
+        out_resumed = fsm.update([t_reobserved], timestamp=4.5)
+        # Resumed dwell time should be > 1.8s
+        assert out_resumed.dwell_time_s > 1.8
+
+        # Scenario 4: Target moving completely outside P_release with OBSERVED resets dwell time
+        t_outside = make_track(1, (0.2, 2.0), missed_count=0)
+        out_reset = fsm.update([t_outside], timestamp=5.0)
+        assert out_reset.state == SafetyState.SAFE
+        assert out_reset.dwell_time_s == 0.0
+
+    def test_disappearing_violator_lockout_latching(self, standard_zone_config):
+        """Verify disappearing violator latches FSM into LOCKOUT (Task 2.5)."""
+        fsm = SpatialFSM(standard_zone_config)
+        fsm.update([])
+
+        # Scenario 1: Non-violating track disappears -> cleaned up normally without trip
+        t_normal = make_track(99, (3.5, 2.0))
+        fsm.update([t_normal])
+        assert 99 in fsm._track_records
+        out_normal = fsm.update([])
+        assert 99 not in fsm._track_records
+        assert out_normal.state == SafetyState.SAFE
+        assert out_normal.trip is False
+
+        # Scenario 2: Violating track disappears -> triggers LOCKOUT latching
+        t_violator = make_track(1, (2.0, 2.0))
+        for _ in range(3):
+            out = fsm.update([t_violator])
+        assert fsm.current_state == SafetyState.DANGER_INTRUSION
+        assert 1 in out.violating_tracks
+
+        # Violator suddenly pruned/disappeared
+        out_lost = fsm.update([])
+        assert out_lost.state == SafetyState.LOCKOUT
+        assert out_lost.trip is True
+        assert fsm.is_tripped is True
+        assert "Hazard violation unverified" in out_lost.message
+
+        # Scenario 3: FSM in LOCKOUT rejects automatic de-escalation
+        for _ in range(5):
+            out_locked = fsm.update([])
+            assert out_locked.state == SafetyState.LOCKOUT
+            assert out_locked.trip is True
+
+        # Authorized reset returns to SAFE when zone is clear
+        out_reset = fsm.reset()
+        assert out_reset.state == SafetyState.SAFE
+        assert out_reset.trip is False

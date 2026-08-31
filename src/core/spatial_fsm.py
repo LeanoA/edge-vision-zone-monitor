@@ -13,7 +13,7 @@ import shapely
 from shapely.geometry import Point, Polygon
 from shapely.prepared import prep, PreparedGeometry
 
-from src.core.kalman_filter import Track
+from src.core.kalman_filter import ObservationStatus, Track
 
 
 class SafetyState(str, Enum):
@@ -82,6 +82,7 @@ class TrackSpatialRecord:
     fast_approach: bool = False
     first_seen_warning_ts: Optional[float] = None
     dwell_time_s: float = 0.0
+    last_observed_dwell_s: float = 0.0
 
 
 class SpatialFSM:
@@ -267,7 +268,9 @@ class SpatialFSM:
                 is_occupied = True
                 break
 
-        if len(self._violating_track_ids) > 0 or is_occupied:
+        has_active_violators = any(trk.track_id in self._violating_track_ids for trk in self._latest_tracks)
+
+        if has_active_violators or is_occupied:
             # Reject reset
             self._current_state = SafetyState.LOCKOUT
             self._is_tripped = True
@@ -397,16 +400,26 @@ class SpatialFSM:
                 else:
                     record = self._track_records[tid]
 
-                # Dwell time tracking in warning perimeter
+                # Dwell time tracking in warning perimeter with freezing during coasting
+                obs_status = getattr(trk, "observation_status", ObservationStatus.OBSERVED)
                 if in_warning and not in_danger:
                     has_warning = True
-                    if record.first_seen_warning_ts is None:
-                        record.first_seen_warning_ts = now
-                    record.dwell_time_s = max(0.0, now - record.first_seen_warning_ts)
+                    if obs_status == ObservationStatus.OBSERVED:
+                        if record.first_seen_warning_ts is None:
+                            record.first_seen_warning_ts = now
+                        record.dwell_time_s = max(0.0, now - record.first_seen_warning_ts)
+                        record.last_observed_dwell_s = record.dwell_time_s
+                    else:
+                        # PREDICTED or STALE: Freeze dwell time at last observed duration
+                        if record.first_seen_warning_ts is not None:
+                            record.dwell_time_s = record.last_observed_dwell_s
+                            # Adjust first_seen_warning_ts so elapsed time doesn't jump on re-observation
+                            record.first_seen_warning_ts = now - record.dwell_time_s
                 else:
                     if not in_release:
                         record.first_seen_warning_ts = None
                         record.dwell_time_s = 0.0
+                        record.last_observed_dwell_s = 0.0
 
                 if record.dwell_time_s > max_dwell:
                     max_dwell = record.dwell_time_s
@@ -428,33 +441,41 @@ class SpatialFSM:
                 else:
                     # Completely outside P_release
                     record.danger_count = 0
-                    record.clean_count += 1
+                    # Asymmetric de-escalation: clean_count increments ONLY if OBSERVED
+                    if obs_status == ObservationStatus.OBSERVED:
+                        record.clean_count += 1
 
                 # Update fast_approach state for subsequent frames
                 record.fast_approach = fast_approach
 
-                # Escalation to DANGER_INTRUSION
+                # Escalation to DANGER_INTRUSION (permitted on any status)
                 if record.danger_count >= self._config.n_confirm:
                     self._violating_track_ids.add(tid)
 
-                # De-escalation back towards SAFE
+                # De-escalation back towards SAFE (strictly requires n_release OBSERVED frames outside release)
                 if tid in self._violating_track_ids:
                     if not in_release and record.clean_count >= self._config.n_release:
                         self._violating_track_ids.discard(tid)
 
         # Cleanup records for tracks that disappeared
+        disappeared_violators = False
+        disappeared_tid = None
         if len(self._track_records) > len(active_ids):
             for tid in list(self._track_records.keys()):
                 if tid not in active_ids:
-                    rec = self._track_records[tid]
                     if tid not in self._violating_track_ids:
                         del self._track_records[tid]
                     else:
-                        # Increment release counter for disappearing violating track
-                        rec.clean_count += 1
-                        if rec.clean_count >= self._config.n_release:
-                            self._violating_track_ids.discard(tid)
-                            del self._track_records[tid]
+                        # FAIL-SAFE: A track violating danger disappeared without verified exit!
+                        # Latch into LOCKOUT per ISO 13849-1 fail-safe architecture.
+                        disappeared_violators = True
+                        disappeared_tid = tid
+                        del self._track_records[tid]
+
+        if disappeared_violators:
+            return self.trigger_lockout(
+                f"Hazard violation unverified: violating track {disappeared_tid} disappeared inside hazard zone."
+            )
 
         # Calculate max active dwell time
         self._last_dwell_time = max_dwell

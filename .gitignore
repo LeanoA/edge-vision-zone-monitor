@@ -50,4 +50,6 @@ ENV/
 
 # Agent Tooling & Local Registries
 .atl/
+.pi/
+.windsurf/
 

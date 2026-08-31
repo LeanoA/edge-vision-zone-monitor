@@ -10,12 +10,65 @@ import pytest
 from src.core.kalman_filter import (
     AnchorSource,
     MetricKalmanFilter,
+    ObservationStatus,
     PositionEstimate,
 )
 
 
 class TestFoundationContractsAndTypes:
-    """Unit tests for Phase 1: AnchorSource enum and PositionEstimate dataclass."""
+    """Unit tests for Phase 1: AnchorSource, ObservationStatus enum and PositionEstimate dataclass."""
+
+    def test_observation_status_enum_members(self):
+        """Verify ObservationStatus enum members and values."""
+        assert ObservationStatus.OBSERVED == "OBSERVED"
+        assert ObservationStatus.PREDICTED == "PREDICTED"
+        assert ObservationStatus.STALE == "STALE"
+        assert len(ObservationStatus) == 3
+
+    def test_position_estimate_default_initialization(self):
+        """Verify default field initialization for status and missed_count."""
+        pe = PositionEstimate(
+            xy_m=(1.0, 2.0),
+            confidence=0.8,
+            source=AnchorSource.ANKLES_DUAL,
+        )
+        assert pe.status == ObservationStatus.OBSERVED
+        assert pe.missed_count == 0
+
+    def test_position_estimate_explicit_initialization(self):
+        """Verify explicit keyword instantiation with status and missed_count."""
+        cov = np.diag([0.05, 0.05])
+        pe = PositionEstimate(
+            xy_m=(1.5, 2.5),
+            confidence=0.75,
+            source=AnchorSource.TRACKER_PREDICTED,
+            status=ObservationStatus.PREDICTED,
+            covariance=cov,
+            missed_count=2,
+        )
+        assert pe.status == ObservationStatus.PREDICTED
+        assert pe.missed_count == 2
+        assert pe.xy_m == (1.5, 2.5)
+
+    def test_position_estimate_status_and_missed_count_validation(self):
+        """Verify validation constraints for status and missed_count."""
+        # Invalid status type
+        with pytest.raises(ValueError, match="status must be an instance of ObservationStatus"):
+            PositionEstimate(
+                xy_m=(1.0, 2.0),
+                confidence=0.8,
+                source=AnchorSource.ANKLES_DUAL,
+                status="OBSERVED",  # type: ignore
+            )
+
+        # Negative missed_count
+        with pytest.raises(ValueError, match="missed_count must be non-negative"):
+            PositionEstimate(
+                xy_m=(1.0, 2.0),
+                confidence=0.8,
+                source=AnchorSource.ANKLES_DUAL,
+                missed_count=-1,
+            )
 
     def test_anchor_source_enum_members(self):
         """Verify AnchorSource enum has required members and string values."""
@@ -404,6 +457,54 @@ class TestTrackLifecycleAndMultiTargetTracker:
             trace_current = np.trace(track.filter.covariance)
             assert trace_current > trace_initial
             trace_initial = trace_current
+
+    def test_track_observation_status_and_estimate_horizons(self):
+        """Verify Track.observation_status and Track.estimate across prediction horizons (Task 1.3)."""
+        track = Track(
+            track_id=42,
+            initial_position=(1.0, 1.0),
+            n_confirm=1,
+            max_missed=5,
+            confidence=0.9,
+            source=AnchorSource.ANKLES_DUAL,
+        )
+        # Scenario 1: Confirmed track with measurement update
+        assert track.missed_count == 0
+        assert track.observation_status == ObservationStatus.OBSERVED
+        assert track.estimate.status == ObservationStatus.OBSERVED
+        assert track.estimate.missed_count == 0
+
+        # Scenario 2: Consecutive missed frames 1, 2, 3 -> PREDICTED
+        for expected_missed in range(1, 4):
+            track.predict()
+            track.mark_missed()
+            assert track.missed_count == expected_missed
+            assert track.is_coasting() is True
+            assert track.observation_status == ObservationStatus.PREDICTED
+            assert track.estimate.status == ObservationStatus.PREDICTED
+            assert track.estimate.missed_count == expected_missed
+            assert track.estimate.source == AnchorSource.TRACKER_PREDICTED
+
+        # Scenario 3: Consecutive missed frames 4, 5 -> STALE
+        for expected_missed in (4, 5):
+            track.predict()
+            track.mark_missed()
+            assert track.missed_count == expected_missed
+            assert track.is_coasting() is True
+            assert track.observation_status == ObservationStatus.STALE
+            assert track.estimate.status == ObservationStatus.STALE
+            assert track.estimate.missed_count == expected_missed
+            assert track.estimate.source == AnchorSource.TRACKER_PREDICTED
+
+        # Scenario 4: Re-detection via track.update(...) immediately restores OBSERVED
+        track.predict()
+        track.update((1.5, 1.5), source=AnchorSource.ANKLES_DUAL, confidence=0.95)
+        assert track.missed_count == 0
+        assert track.observation_status == ObservationStatus.OBSERVED
+        assert track.estimate.status == ObservationStatus.OBSERVED
+        assert track.estimate.missed_count == 0
+        assert track.estimate.source == AnchorSource.ANKLES_DUAL
+        assert track.estimate.confidence == 0.95
 
     def test_occlusion_recovery(self):
         """Verify coasting track recovers to CONFIRMED when measurement reappears."""

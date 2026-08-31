@@ -18,21 +18,39 @@ class AnchorSource(str, Enum):
     TRACKER_PREDICTED = "TRACKER_PREDICTED"  # Tier 4: Dead reckoning via Kalman prediction
 
 
+class ObservationStatus(str, Enum):
+    """
+    Epistemological validity and temporal freshness of a spatial coordinate estimate.
+
+    Members:
+        OBSERVED: Fresh physical sensor detection matched and assimilated in current frame (k = 0).
+        PREDICTED: Open-loop dead reckoning within safe hysteresis divergence horizon (1 <= k <= 3, <= 100ms).
+        STALE: Open-loop dead reckoning exceeding safe divergence horizon (4 <= k <= max_missed, 133-167ms).
+    """
+    OBSERVED = "OBSERVED"
+    PREDICTED = "PREDICTED"
+    STALE = "STALE"
+
+
 @dataclass(frozen=True)
 class PositionEstimate:
     """
-    Immutable metric ground position estimate with provenance and uncertainty.
+    Immutable metric ground position estimate with provenance, uncertainty, and observation status.
 
     Attributes:
         xy_m: Metric (X, Y) coordinates on the factory floor plane (meters).
         confidence: Normalized reliability metric in [0.0, 1.0].
         source: AnchorSource identifying the data tier.
+        status: ObservationStatus defining epistemic freshness (default: OBSERVED).
         covariance: Optional 2x2 spatial position error covariance matrix (m^2).
+        missed_count: Number of consecutive missed frames (default: 0).
     """
     xy_m: Tuple[float, float]
     confidence: float
     source: AnchorSource
+    status: ObservationStatus = ObservationStatus.OBSERVED
     covariance: Optional[np.ndarray] = None
+    missed_count: int = 0
 
     def __post_init__(self) -> None:
         if not (isinstance(self.xy_m, (tuple, list)) and len(self.xy_m) == 2):
@@ -41,6 +59,10 @@ class PositionEstimate:
             raise ValueError(f"confidence must be in [0.0, 1.0], got {self.confidence}")
         if not isinstance(self.source, AnchorSource):
             raise ValueError(f"source must be an instance of AnchorSource, got {type(self.source)}")
+        if not isinstance(self.status, ObservationStatus):
+            raise ValueError(f"status must be an instance of ObservationStatus, got {type(self.status)}")
+        if self.missed_count < 0:
+            raise ValueError(f"missed_count must be non-negative, got {self.missed_count}")
         if self.covariance is not None:
             if not isinstance(self.covariance, np.ndarray) or self.covariance.shape != (2, 2):
                 raise ValueError("covariance must be a 2x2 numpy array if provided.")
@@ -469,17 +491,34 @@ class Track:
         return self._confidence
 
     @property
+    def observation_status(self) -> ObservationStatus:
+        """
+        Return current epistemological observation status based on missed frames.
+        OBSERVED: missed_count == 0
+        PREDICTED: 1 <= missed_count <= 3 (divergence contained within hysteresis buffer)
+        STALE: missed_count >= 4 (divergence exceeds hysteresis buffer)
+        """
+        if self._missed_count == 0:
+            return ObservationStatus.OBSERVED
+        elif self._missed_count <= 3:
+            return ObservationStatus.PREDICTED
+        else:
+            return ObservationStatus.STALE
+
+    @property
     def estimate(self) -> PositionEstimate:
         """
         Unified immutable PositionEstimate encapsulating position, confidence,
-        provenance source, and 2x2 ground position error covariance.
+        provenance source, observation status, error covariance, and missed count.
         """
         cov_2x2 = self._filter.covariance[:2, :2].copy()
         return PositionEstimate(
             xy_m=self.position,
             confidence=self._confidence,
             source=self._source,
+            status=self.observation_status,
             covariance=cov_2x2,
+            missed_count=self._missed_count,
         )
 
     def predict(self, dt: Optional[float] = None) -> np.ndarray:
