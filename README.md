@@ -21,40 +21,79 @@ Prototipo experimental de visión artificial para monitoreo de incursiones y con
 
 Para garantizar la entrega de un sistema robusto, determinista y verificable sin sobreingeniería, el alcance del proyecto queda congelado y categorizado de la siguiente manera:
 
-### 1. Núcleo Principal (MVP Obligatorio — Implementado)
-Cadena causal de procesamiento en tiempo real:
+### 1. Núcleo Principal y Flujo de Datos End-to-End
+
+El sistema está estructurado en 5 etapas secuenciales de percepción y decisión, integradas con un módulo ortogonal de perfilado de latencia (*Performance Profiler*) para garantizar presupuestos de tiempo real según **ISO 13855**:
 
 ```
-Video Grabado / Stream
-        ↓
-  Person Pose (YOLO11n-Pose ONNX)
-        ↓
-  Ground Point (Punto de contacto en piso: tobillos)
-        ↓
-  Homografía (Mapeo DLT 2D -> Plano Métrico)
-        ↓
-  Ubicación Métrica (Coordenadas X, Y en metros)
-        ↓
-  Filtrado Espacial (Filtro de Kalman 2D Cinemático CV)
-        ↓
-  Estado de Zona Restringida (Spatial FSM con doble histéresis)
-        ↓
-  Estado de Permanencia (Dwell Time Warning & Violation)
-        ↓
-Visualización Dual (Cámara + Bird's-Eye View) + Event Log (JSON)
-        ↓
-Profiling de Latencia (Desglose T1 por etapa y percentiles)
+                    PERCEPTION
+                         │
+Camera frame ──► Pose inference
+                         │
+                         ▼
+                 keypoint extraction
+                         │
+                         ▼
+                 ground-point estimate
+                         │
+─────────────────────────┼────────────────────────
+                    GEOMETRY
+                         │
+                         ▼
+                   Homography
+                         │
+                         ▼
+                 (X,Y) estimate [m]
+                         │
+─────────────────────────┼────────────────────────
+                  STATE ESTIMATION
+                         │
+                         ▼
+                Alpha-Beta / Kalman
+                         │
+                         ▼
+            filtered metric trajectory
+                         │
+─────────────────────────┼────────────────────────
+                 DECISION LOGIC
+                         │
+                         ▼
+              Restricted zone test
+                         │
+                         ▼
+                  Spatial FSM
+                         │
+                         ▼
+                   Dwell timer
+                         │
+─────────────────────────┼────────────────────────
+                     OUTPUT
+                         │
+            events / overlay / metrics
+
+          ═══════════════════════════
+          PERFORMANCE PROFILER (Ortogonal)
+          • Capture / Ingest Latency
+          • Preprocess Latency
+          • Inference Latency
+          • Keypoint Extract Latency
+          • Projection Latency
+          • Tracking Latency
+          • FSM Decision Latency
+          • End-to-End Reaction Time (T1)
+          ═══════════════════════════
 ```
 
-* **Video / Frame Ingestion:** Preprocesamiento letterbox $(640 \times 640)$ con preservación de relación de aspecto, padding simétrico y normalización en [`src/pipeline/safety_pipeline.py`](src/pipeline/safety_pipeline.py).
-* **Person Pose:** Inferencia local con `yolo11n-pose` en ONNX Runtime desacoplada del hardware subyacente en [`src/inference/onnx_engine.py`](src/inference/onnx_engine.py).
-* **Ground Point:** Extracción del punto de contacto físico con el suelo mediante el punto medio de tobillos (`left_ankle: 15`, `right_ankle: 16`) con umbral de confianza (`extract_ankle_anchor`).
-* **Homografía:** Proyección perspectiva 2D a plano métrico ($Z_w=0$) mediante DLT ($3 \times 3$) con validación geométrica de condicionamiento en [`src/core/homography.py`](src/core/homography.py).
-* **Filtrado Espacial & Tracking:** Filtro de Kalman métrico 2D $(X, Y, \dot{X}, \dot{Y})$ con modelo cinemático CV, asociación multiobjeto y marco epistemológico de 3 estados (`OBSERVED`, `PREDICTED`, `STALE`) con decaimiento de confianza y envolvente de divergencia cuadrática en [`src/core/kalman_filter.py`](src/core/kalman_filter.py).
-* **Gestión de Zonas Restringidas:** FSM con histéresis espacial ($P_{\text{danger}}$ vs $P_{\text{release}}$), temporal ($N_{\text{confirm}}$), bypass dinámico por velocidad de aproximación $v_n \ge 1.6\text{ m/s}$ (ISO 13855), salvaguarda asimétrica (desescalada sujeta a evidencia óptica `OBSERVED`) y enclavamiento en `LOCKOUT` por desaparición de intruso en [`src/core/spatial_fsm.py`](src/core/spatial_fsm.py).
-* **Control de Permanencia (Dwell Time):** Medición de tiempo acumulado dentro de la zona protegida con congelamiento de tiempo durante extrapolación cinemática (*coasting*) y transiciones automáticas a advertencia y violación en [`src/core/spatial_fsm.py`](src/core/spatial_fsm.py).
-* **Visualización Dual & Event Log:** Compositor en tiempo real de vista en perspectiva con overlays y vista cenital métrica (Bird's-Eye View), con registro estructurado de eventos de seguridad en [`src/utils/visualizer.py`](src/utils/visualizer.py).
-* **Profiling de Latencia:** Registro y benchmark de tiempos de respuesta por etapa ($T_1 = t_{\text{pre}} + t_{\text{inf}} + t_{\text{pose}} + t_{\text{proj}} + t_{\text{track}} + t_{\text{fsm}}$) con percentiles p50, p95 y p99 en [`scripts/benchmark.py`](scripts/benchmark.py).
+#### Mapeo Arquitectónico y Estado de Implementación
+
+| Capa Arquitectónica | Componente / Flujo | Módulo de Código | Estado y Próximos Pasos (Edge AI) |
+| :--- | :--- | :--- | :--- |
+| **1. PERCEPTION** | Camera Frame $\to$ Pose Inference $\to$ Keypoints $\to$ Ground Contact | `src/inference/onnx_engine.py`<br>`src/pipeline/safety_pipeline.py` | **100% Implementado**<br>• Inferencia YOLO11n-Pose ONNX (`CoreMLExecutionProvider` / CPU / CUDA).<br>• Extracción anatómica de tobillos (`left_ankle: 15`, `right_ankle: 16`) con fallback a borde inferior de Bbox ([ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md), [ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md)). |
+| **2. GEOMETRY** | Proyección Homográfica $\to$ $(X,Y)$ métrico en plano de suelo ($Z_w=0$) | `src/core/homography.py` | **100% Implementado**<br>• Mapeo planar DLT $3 \times 3$ con validación geométrica de colinealidad y condicionamiento numérico $\kappa(H) < 10^6$ ([ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md), [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md)). |
+| **3. STATE ESTIMATION** | Filtro Kalman 2D Cinemático $\to$ Trayectoria Métrica Filtrada | `src/core/kalman_filter.py` | **100% Implementado**<br>• Modelo cinemático de Velocidad Constante (CV) con matriz de covarianza y ganancia $K_k$.<br>• Epistemología de 3 estados de observación (`OBSERVED`, `PREDICTED`, `STALE`) con límite de divergencia cuadrática ([ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md), [ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md)). |
+| **4. DECISION LOGIC** | Zone Test $\to$ Spatial FSM $\to$ Dwell Timer | `src/core/spatial_fsm.py` | **100% Implementado**<br>• Regiones ortogonales Statecharts: `OccupancyState` (`OUTSIDE`, `ENTER_PENDING`, `INSIDE`, `EXIT_PENDING`) $\times$ `DwellState` (`NONE`, `NORMAL`, `WARNING`, `VIOLATION`) ([ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md)).<br>• Disparo fail-safe instantáneo en `INSIDE` ($t=0\text{ s}$) y bypass dinámico por velocidad $v_n \ge 1.6\text{ m/s}$ (ISO 13855). |
+| **5. OUTPUT** | Overlay Dual $\to$ Stream de Telemetría $\to$ Métricas | `src/utils/visualizer.py`<br>`scripts/run_demo.py` | **100% Implementado**<br>• Compositor dual en tiempo real (Perspectiva anotada + Bird's-Eye View métrico).<br>• Emisión de telemetría estructurada JSONL y reporte de percentiles de rendimiento.<br>*(Roadmap Edge AI: Exporter industrial para protocolos de planta MQTT / ZeroMQ / gRPC)*. |
+| **6. PROFILER (Ortogonal)** | Profiling granular por etapa $\to$ Latencia End-to-End ($T_1$) | `src/pipeline/safety_pipeline.py`<br>`src/inference/benchmark.py` | **95% Implementado**<br>• Medición de alta resolución en cada etapa ($T_1 = t_{\text{pre}} + t_{\text{inf}} + t_{\text{pose}} + t_{\text{proj}} + t_{\text{track}} + t_{\text{fsm}}$) con percentiles p50, p95 y p99.<br>*(Próximo paso 5%: Medición de hardware timestamp en captura e ingestión con ring buffer)*. |
 
 ### 2. Secundario (Sólo si sobra tiempo)
 * **Comparación PyTorch vs ONNX:** Benchmark comparativo de throughput y latencia entre runtime nativo de PyTorch y ONNX Runtime.
@@ -307,6 +346,7 @@ Para evitar la conflación entre la **topología espacial** y la **acumulación 
 - [x] **Paso 5:** Exportador e Inferencia ONNX (`models/export_onnx.py` & `src/inference/onnx_engine.py`) y suite de benchmark (`scripts/benchmark.py`).
 - [x] **Paso 6:** Pipeline de Ejecución, Visualización Top-Down y Métricas (`src/pipeline/safety_pipeline.py`, `src/utils/visualizer.py`).
 - [x] **Paso 7:** Scripts de Demo y Ejecución End-to-End sobre video (`scripts/run_demo.py`).
+- [ ] **Paso 8:** Optimización Edge AI: Profiling de captura de hardware (V4L2/RTSP timestamp delta), Ring Buffer desacoplado y exportador de telemetría industrial (MQTT/ZeroMQ).
 
 ---
 
