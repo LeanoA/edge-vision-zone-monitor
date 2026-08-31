@@ -293,4 +293,25 @@ Para evitar oscilaciones (*flickering*) en los límites de las zonas restringida
 - [x] **Paso 4:** FSM Espacial de Incursión (`src/core/spatial_fsm.py`) y pruebas de estados (`tests/test_fsm.py`).
 - [x] **Paso 5:** Exportador e Inferencia ONNX (`models/export_onnx.py` & `src/inference/onnx_engine.py`) y suite de benchmark (`scripts/benchmark.py`).
 - [x] **Paso 6:** Pipeline de Ejecución, Visualización Top-Down y Métricas (`src/pipeline/safety_pipeline.py`, `src/utils/visualizer.py`).
-- [ ] **Paso 7:** Scripts de Demo y Ejecución End-to-End sobre video (`scripts/run_demo.py`).
+- [x] **Paso 7:** Scripts de Demo y Ejecución End-to-End sobre video (`scripts/run_demo.py`).
+
+---
+
+## 💻 Ejecución del Demo CLI (`scripts/run_demo.py`)
+
+Para ejecutar la demostración interactiva end-to-end con visualización dual en tiempo real:
+
+```bash
+# 1. Generar muestras sintéticas de calibración
+python scripts/generate_samples.py --output-dir data/samples
+
+# 2. Ejecutar Demo interactivo (Ventana dual OpenCV + controles SPACE / q)
+python scripts/run_demo.py --source data/samples/sequence_a_clean_incursion.mp4
+
+# 3. Ejecutar en modo Headless exportando video anotado y telemetría JSONL
+python scripts/run_demo.py \
+  --source data/samples/sequence_b_occlusion_coasting.mp4 \
+  --no-display \
+  --output-video output/demo_annotated.mp4 \
+  --output-events output/telemetry_events.jsonl
+```

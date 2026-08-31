@@ -3,6 +3,7 @@ src/utils/__init__.py
 Utility helpers and visualizer exports.
 """
 
+from src.utils.synthetic_generator import SyntheticVideoGenerator
 from src.utils.visualizer import DualVisualizer
 
-__all__ = ["DualVisualizer"]
+__all__ = ["DualVisualizer", "SyntheticVideoGenerator"]
