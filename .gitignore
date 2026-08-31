@@ -53,3 +53,7 @@ ENV/
 .pi/
 .windsurf/
 
+# Local Notes & Scratchpads
+*.local.md
+*.local.*
+
