@@ -229,6 +229,34 @@ La matriz $H$ se estima mediante el algoritmo DLT (*Direct Linear Transformation
 
 Para evitar la conflación entre la **topología espacial** y la **acumulación temporal**, el sistema desacopla el razonamiento en dos autómatas concurrentes e independientes:
 
+#### Schmitt Trigger Espacial y Asimetría Entry / Exit ([ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md), [ADR-006](docs/decisions/adr-006-prepared-geometries-dynamic-debounce-bypass.md), [ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md))
+
+```
+                      P_release (Límite de Liberación)
+                   ┌───────────────────────────────────┐
+                   │       Banda de Histéresis         │
+                   │       (Δd = 200 mm)               │
+                   │    P_danger (Límite de Peligro)   │
+                   │   ┌───────────────────────────┐   │
+                   │   │                           │   │
+                   │   │          MÁQUINA          │   │
+                   │   │                           │   │
+                   │   └───────────────────────────┘   │
+                   │                                   │
+                   └───────────────────────────────────┘
+
+1. ENTRY POLICY (Conservative & Fast):
+   • Aproximación normal (vn < 1.6 m/s) : Debounce de N_confirm = 3 cuadros.
+   • Aproximación rápida (vn >= 1.6 m/s): Bypass instantáneo (N_confirm = 1) en cuadro 1 (ISO 13855).
+
+2. EXIT POLICY (Hysteretic & Strict):
+   • Debounce de salida: Exige N_release = 5 cuadros consecutivos fuera de P_release.
+   • Salvaguarda asimétrica (ADR-008): Desescalada permitida estrictamente con fotones reales (OBSERVED).
+     Si el objetivo queda ocluido (PREDICTED / STALE), la salida se bloquea y el relé permanece abierto.
+```
+
+#### Statecharts Ortogonales (Occupancy x Dwell)
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ 1. AUTÓMATA DE OCUPACIÓN ESPACIAL (OccupancyState)                          │
