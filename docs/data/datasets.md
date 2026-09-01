@@ -1,6 +1,6 @@
-# Datasets de Referencia y Validación Experimental (Ground-Truth Datasets)
+# Datasets de Referencia, Validación Experimental y Lecciones de Ingeniería
 
-Este documento centraliza las fuentes de datos, secuencias de referencia y especificaciones métricas para validar los algoritmos de visión por computador en seguridad industrial del proyecto (**Detección de Intrusiones**, **Homografía Planar**, **Oclusiones de Extremidades Inferiores**, **Filtro de Kalman Cinemático** y **Tiempos de Permanencia / Dwell Time**).
+Este documento centraliza las fuentes de datos, secuencias de referencia, especificaciones métricas y descubrimientos técnicos obtenidos durante la validación de los algoritmos de visión artificial para seguridad industrial del proyecto (**Detección de Intrusiones**, **Homografía Planar DLT**, **Oclusiones de Extremidades Inferiores**, **Filtro de Kalman Cinemático**, **Tiempos de Permanencia / Dwell Time** y **Seguimiento en Celdas Robóticas Industriales**).
 
 ---
 
@@ -14,105 +14,133 @@ Para evaluar rigurosamente el pipeline de seguridad, las secuencias de video deb
    - **Incursión Limpia y Cruce Rectilíneo:** Velocidad constante sin oclusión para medir latencia de disparo y error de estimación de velocidad $\vec{v} = [\dot{X}, \dot{Y}]$.
    - **Oclusión Parcial Inferior (Pies Ocultos):** Tránsito detrás de obstáculos bajos (pallets, cajas, barandas) para evaluar el modo *coasting* del filtro de Kalman y la degradación controlada (`ankles_dual` $\to$ `ankle_single` $\to$ `tracker_predicted` $\to$ `bbox_bottom`).
    - **Permanencia y Merodeo (*Loitering*):** Sujetos detenidos dentro de la zona protegida para verificar los temporizadores $T_{\text{warn}}$ y $T_{\text{violation}}$.
+   - **Intervención en Celda de Maquinaria / Robótica:** Sujetos aproximándose a envolventes de peligro de maquinaria pesada o robots industriales.
 
 ---
 
-## 2. Conjuntos de Referencia Públicos
+## 2. Catálogo de Datasets: Características y Ground Truth
 
-| Dataset | Resolución | Puntos de Referencia en Suelo | Caso de Prueba Primario | Licencia / Acceso |
-| :--- | :--- | :--- | :--- | :--- |
-| **PETS 2009 (S2.L1)** | $768 \times 576$ / $720\text{p}$ | Cuadrícula de adoquines / esquinas de acera | Incursión limpia y seguimiento de velocidad cinemática | Académica / Abierta |
-| **INRIA CAVIAR** | $720\text{p}$ / $288\text{p}$ | Baldosas cuadradas de piso interior | Oclusión de pies y propagación de confianza | Abierta (INRIA / Univ. Edinburgh) |
-| **Oxford TownCentre** | $1920 \times 1080$ ($1080\text{p}$) | Líneas de adoquines y esquinas de bancas | Permanencia en zona protegida y cruce de límites | Académica / Abierta (Oxford) |
+### 2.1 Muestras Sintéticas Locales con Ground Truth Analítico Exacto
 
----
+Generadas determinísticamente mediante [`src/utils/synthetic_generator.py`](../../src/utils/synthetic_generator.py) y evaluables vía `scripts/generate_samples.py`:
 
-### Secuencia A: Incursión Limpia y Cruce Rectilíneo
-* **Dataset / Fuente:** PETS 2009 Benchmark (Sequence `S2.L1` – View 001).
-* **Escenario:** Vista cenital angular (montada a $\approx 3.5\text{ m}$ de altura) sobre explanada plana con marcas de adoquines/cuadrícula. Sujetos ingresan y cruzan el plano de visualización a velocidad constante sin interferencias severas.
-* **Propiedades Técnicas:** 25 FPS, cámara fija con matriz de calibración Tsai incluida (coordenadas intrínsecas/extrínsecas y homografía de plano de suelo directa).
-* **Utilidad en el Pipeline:** Calibración de los 4 puntos de homografía `cv2.findHomography` / `cv2.warpPerspective`, proyección de los pies al plano $Z=0$ y cálculo de velocidad en $\text{m/s}$.
-* **Enlaces de Descarga:**
-  * [PETS 2009 – Repositorio Abierto en GitLab / TU Clausthal](https://gitlab.tu-clausthal.de/)
-  * [Espejo de secuencias PETS 2009 en Kaggle](https://www.kaggle.com/)
+* **`sequence_a_clean_incursion` (Incursión Limpia):**
+  * **Geometría:** Celda métrica de $6\text{m} \times 6\text{m}$ con zona de peligro central ($[2.0, 2.0] \times [4.0, 4.0]\text{ m}$).
+  * **Ground Truth:** Trayectoria analítica exacta ($\text{error} = 0.00\text{ mm}$), velocidad constante $v_x = 1.0\text{ m/s}$, $v_y = 0.0\text{ m/s}$.
+  * **Propósito:** Medir la latencia de respuesta $T_1$ y verificar la precisión del debounce $N_{\text{confirm}} = 3$.
 
----
+* **`sequence_b_occlusion_coasting` (Oclusión por Obstáculo Bajo):**
+  * **Geometría:** Barrera baja de $0.5\text{ m}$ de altura que oculta los tobillos durante 15 cuadros ($0.5\text{ s}$).
+  * **Ground Truth:** Estado de degradación de anclaje (`ankles_dual` $\to$ `tracker_predicted` $\to$ `bbox_bottom`).
+  * **Propósito:** Validar el modo *coasting* del filtro de Kalman sin divergencia de covarianza.
 
-### Secuencia B: Oclusión Parcial Inferior (Pies Ocultos)
-* **Dataset / Fuente:** INRIA CAVIAR Dataset (Secuencias: `Browse_While_Waiting1` / `LeftBag`).
-* **Escenario:** Cámara de seguridad fija montada en ángulo superior (hall/lobby de laboratorio y centro comercial). El piso tiene baldosas cuadradas continuas ideales para homografía. Personas caminan pasando detrás de columnas, barandas y asientos bajos donde los pies desaparecen momentáneamente del detector.
-* **Propiedades Técnicas:** 25 FPS, compresión directa H.264/MP4 disponible. Incluye anotación de bounding box y posición de pies/cabeza.
-* **Utilidad en el Pipeline:** Prueba de robustez del filtro de Kalman cuando el punto inferior de contacto con el suelo se pierde temporalmente por un obstáculo bajo ([ADR-007](file:///Users/xander/Projects/edge-safety-guard/docs/decisions/adr-007-occlusion-handling-confidence-propagation.md) y [ADR-008](file:///Users/xander/Projects/edge-safety-guard/docs/decisions/adr-008-kalman-epistemology-noise-divergence.md)).
-* **Enlaces de Descarga:**
-  * [CAVIAR Test Case Scenarios – INRIA / University of Edinburgh](http://homepages.inf.ed.ac.uk/rbf/CAVIARDATA1/)
+* **`sequence_c_dwell_loitering` (Permanencia en Zona):**
+  * **Geometría:** Operario ingresa a la zona de peligro y permanece detenido durante $7.0\text{ s}$.
+  * **Ground Truth:** Temporizador de *dwell time* continuo ($T_{\text{warn}} = 3.0\text{s}$, $T_{\text{violation}} = 6.0\text{s}$).
+  * **Propósito:** Validar la FSM de permanencia temporal desacoplada ([ADR-009](../decisions/adr-009-decoupled-spatial-dwell-statecharts.md)).
 
 ---
 
-### Secuencia C: Permanencia / Merodeo (Loitering) y Cruce de Líneas Críticas
-* **Dataset / Fuente:** Oxford TownCentre Dataset (1080p Full HD).
-* **Escenario:** Cámara fija CCTV a $\approx 4\text{ m}$ de altura con pitch de $\approx 35^\circ$ observando un área peatonal con cuadrícula de adoquines claramente visible. Sujetos caminan, algunos se detienen por más de 5–15 segundos y otros bordean los límites.
-* **Propiedades Técnicas:** $1920 \times 1080$ @ 25 FPS, vídeo sin movimiento de cámara, alta nitidez para estimación precisa de pose y pies.
-* **Utilidad en el Pipeline:** Validación de lógica de zonas poligonales de peligro (Shapely / `prep(polygon)`), temporizadores de permanencia (*dwell time*) y bypass dinámico por velocidad de aproximación.
-* **Enlaces de Descarga:**
-  * [Oxford TownCentre Dataset en Kaggle (1080p MP4 + Ground Truth)](https://www.kaggle.com/)
+### 2.2 Datasets Empíricos Reales de Videovigilancia y Espacios Públicos
+
+* **`opencv_vtest` (CCTV Cruce Peatonal - $768 \times 576$):**
+  * **Calibración:** 4 puntos DLT sobre el plano de la calzada peatonal.
+  * **Comportamiento:** Tránsito continuo de personas con incursión directa en el polígono rojo de seguridad.
+  * **Resultado Empírico:** Detecta 10 eventos de intrusión confirmada y activa el enclave de seguridad `LOCKOUT` durante 583 frames ($77\%$), requiriendo rearme de operador.
+
+* **`pets2009_s2_l1` (Benchmark PETS 2009 - Explanada Campus):**
+  * **Calibración:** Matriz de cámara Tsai (intrínsecos y extrínsecos) y plano de suelo referenciado en adoquines.
+  * **Comportamiento:** Seguimiento simultáneo denso (199 a 379 tracks) con cruces de trayectorias y oclusiones dinámicas.
+  * **Resultado Empírico:** Permite evaluar la robustez del tracker multiobjetivo y la estabilidad de las predicciones cinemáticas sobre un área amplia ($12\text{m} \times 20\text{m}$).
+
+* **`openvino_people` (Pasillo Comercial Full HD - $1920 \times 1080$):**
+  * **Calibración:** Proyección planar longitudinal del corredor comercial.
+  * **Comportamiento:** Flujo continuo de personas en alta resolución hacia y desde la cámara.
+  * **Resultado Empírico:** Verificación del pipeline en resolución Full HD $1080\text{p}$ con latencia media de $22.02\text{ ms}$ ($> 35\text{ FPS}$).
 
 ---
 
-## 3. Generación y Uso de Muestras Sintéticas Locales
+### 2.3 Datasets de Entornos Industriales y Celdas Robóticas
 
-Para pruebas automatizadas en CI y desarrollo local sin descargas externas, el proyecto incluye un generador determinista (`src/utils/synthetic_generator.py` y `scripts/generate_samples.py`) que reproduce la geometría planar, la calibración DLT y la cinemática de estos 3 escenarios:
+* **`mendeley_industrial` (Mendeley Industrial Safety Dataset):**
+  * **Origen:** Planta de manufactura metalmecánica y plásticos *Kafaoğlu Metal Plastik Makine* (Eskişehir, DOI: `10.17632/xjmtb22pff.1`).
+  * **Secuencia Primaria:** `mendeley_unauthorized_intervention.mp4` (Clip `1_tr1.mp4`, 173 frames, $1080\text{p}$).
+  * **Particularidad:** Operario aproximándose a maquinaria pesada e ingresando en el perímetro de operación no autorizada.
+  * **Resultado Empírico:** 25 tracks observados, detección anatómica precisa y $13.9\%$ de frames en pre-alarma de aproximación (`WARNING_APPROACH`).
 
-```bash
-# Generar las tres secuencias de prueba en data/samples/
-python scripts/generate_samples.py --output-dir data/samples --fps 30
+* **`InHARD` (Industrial Human Action Recognition Dataset - Hoja de Ruta):**
+  * **Entorno:** Celda robótica colaborativa industrial real (*Human-Robot Collaboration - HRC*) con cobots y maquinaria CNC/soldadura.
+  * **Ground Truth:** Anotaciones temporales de acciones de operarios dentro del envolvente de trabajo del manipulador robótico.
+  * **Acceso:** Repositorio académico abierto en Zenodo.
+
+* **`HA4M` (Human Action Analysis for Manufacturing - Hoja de Ruta):**
+  * **Entorno:** Celdas de ensamblaje manual y robótico con sensores RGB-D calibrados (Azure Kinect).
+  * **Ground Truth:** Matrices intrínsecas/extrínsecas y nubes de puntos 3D del suelo de la celda.
+
+---
+
+## 3. Descubrimientos Empíricos y Lecciones de Ingeniería (Lessons Learned)
+
+Durante la integración y evaluación de estos datasets, se identificaron y resolvieron 4 problemas arquitectónicos y matemáticos críticos:
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                    LECCIONES DE INGENIERÍA Y HALLAZGOS                     │
+├────────────────────────────────┬───────────────────────────────────────────┤
+│ Hallazgo 1: Letterbox Pose Miss │ Inferencia a 640x640 dejaba keypoints sin │
+│                                │ unletterbox -> Skeletons reducidos a 1/3. │
+├────────────────────────────────┼───────────────────────────────────────────┤
+│ Hallazgo 2: BEV Viewport Fijo  │ Canvas fijo a 100px/m recortaba plantas   │
+│                                │ mayores a 6x6m -> Auto-Scale Dinámico.    │
+├────────────────────────────────┼───────────────────────────────────────────┤
+│ Hallazgo 3: Inversión Eje Y    │ Origen de imagen (v=0 arriba) invertía la │
+│                                │ profundidad visual -> v = H - 1 - y.      │
+├────────────────────────────────┼───────────────────────────────────────────┤
+│ Hallazgo 4: MOT ID Switching   │ Coasting corto (max_missed=5) causaba     │
+│                                │ cambio de color y vectores duplicados.    │
+└────────────────────────────────┴───────────────────────────────────────────┘
 ```
 
+### 3.1 Hallazgo 1: Inversión de Coordenadas de Letterbox en Inferencia de Pose
+* **Problema:** En videos $1080\text{p}$, las bounding boxes se mapeaban correctamente, pero los 17 keypoints anatómicos de pose se mantenían en el canvas de inferencia de $640 \times 640\text{ px}$.
+* **Efecto:** El esqueleto anatómico se dibujaba encogido a un tercio de su tamaño real ($3\times$ más chico) y desplazado hacia la esquina superior izquierda.
+* **Solución:** Implementación de `unletterbox_keypoints` en [`src/pipeline/safety_pipeline.py`](../../src/pipeline/safety_pipeline.py):
+  $$x_{\text{orig}} = \frac{x_{\text{canvas}} - \text{pad}_x}{\text{scale}}, \quad y_{\text{orig}} = \frac{y_{\text{canvas}} - \text{pad}_y}{\text{scale}}$$
+  Promovido bajo la especificación formal [`openspec/specs/keypoint-unletterbox/spec.md`](../../openspec/specs/keypoint-unletterbox/spec.md).
+
 ---
 
-## 4. Herramientas Modulares de Descarga e Ingesta Real
+### 3.2 Hallazgo 2: Viewport Cenital Fijo vs Dimensiones de Planta
+* **Problema:** El visualizador utilizaba una escala fija de $100\text{ px/m}$ en un canvas de $600 \times 600\text{ px}$, limitando la visualización a recuadros de $6\text{m} \times 6\text{m}$. En naves industriales ($10\text{m} \times 15\text{m}$) o plazas ($12\text{m} \times 20\text{m}$), el operario y la máquina quedaban fuera de la pantalla.
+* **Solución:** Auto-escala dinámico en [`DualVisualizer`](../../src/utils/visualizer.py) que calcula la envolvente métrica $[X_{\min}, Y_{\min}, X_{\max}, Y_{\max}]$ con margen de seguridad del $15\%$, adaptando automáticamente la cuadrícula métrica.
+  Promovido bajo la especificación formal [`openspec/specs/dynamic-bev-viewport/spec.md`](../../openspec/specs/dynamic-bev-viewport/spec.md).
 
-Para evaluar el modelo y pipeline sobre secuencias reales sin modificar el código *core*, el repositorio proporciona un gestor de descarga y un arnés de pruebas desacoplado.
+---
 
-### 4.1 Catálogo y Descarga de Datasets (`scripts/download_datasets.py`)
+### 3.3 Hallazgo 3: Orientación del Eje de Profundidad en Presentación
+* **Problema:** Al proyectar $(X_w, Y_w)$ a píxeles de pantalla $(u, v)$ donde $v=0$ es la fila superior, la base de la cámara ($Y_w = 0$) quedaba arriba y el fondo de la nave ($Y_w = 15$) abajo, invirtiendo el sentido visual de avance.
+* **Solución:** Ajuste en la capa de presentación gráfica mediante $v = H - 1 - \text{offset}_y - (Y_w - Y_{\min}) \cdot s$, manteniendo el **Core** intacto (el álgebra euclidiana y la pertenencia a polígonos de Shapely siempre fueron matemáticamente consistentes).
+  Promovido bajo la especificación formal [`openspec/specs/bev-y-axis-orientation/spec.md`](../../openspec/specs/bev-y-axis-orientation/spec.md).
 
-El script cuenta con un registro centralizado, verificación de presencia local y failover automático entre múltiples *mirrors*:
+---
 
-```bash
-# 1. Listar datasets registrados y su estado local
-python scripts/download_datasets.py --list
+### 3.4 Hallazgo 4: Desafíos de Seguimiento Multiobjetivo (MOT Challenges)
+* **Problema:** En cruces peatonales densos, una oclusión de más de 5 cuadros ($150\text{ ms}$) destruía el track viejo, generando un ID nuevo y cambiando el color del operario (*ID Switching*). Asimismo, detecciones redundantes de YOLO producían vectores dobles sobre la misma persona (*Ghost Tracks*).
+* **Solución Documentada en Hoja de Ruta:**
+  1. Extensión de la ventana de *coasting* a $15 - 20$ cuadros ($0.5\text{s} - 0.7\text{s}$) aprovechando el modelo epistemológico asimétrico ([ADR-008](../decisions/adr-008-kalman-epistemology-noise-divergence.md)).
+  2. Asignación global mediante el **Algoritmo Húngaro (Munkres)**.
+  3. **Supresión Espacial al Nacer (*World-Space Spatial NMS*)** para evitar la creación de tracks a distancias menores a $0.6\text{ m}$ de un track existente.
 
-# 2. Descargar la secuencia limpia de prueba primaria (OpenCV vtest)
-python scripts/download_datasets.py --dataset opencv_vtest
+---
 
-# 3. Descargar la secuencia peatonal 1080p (OpenVINO people)
-python scripts/download_datasets.py --dataset openvino_people
-```
+## 4. Tabla Comparativa Integral de Rendimiento
 
-### 4.2 Arnés de Evaluación Desacoplado (`scripts/run_dataset_test.py`)
-
-Ejecuta el pipeline completo de seguridad (`SafetyPipeline`) contra el video descargado y su archivo de calibración/zona YAML en `configs/datasets/`:
-
-```bash
-# Ejecutar evaluación de 75 frames en modo headless
-python scripts/run_dataset_test.py --dataset opencv_vtest --max-frames 75 --no-display
-
-# Ejecutar evaluación interactiva con ventana visual (OpenCV GUI)
-python scripts/run_dataset_test.py --dataset opencv_vtest --display
-```
-
-### 4.3 Resultados y Métricas de Validación Baseline
-
-Las corridas generan automáticamente los siguientes artefactos en `data/results/<dataset_name>/`:
-* `annotated_<dataset_name>.mp4`: Video compuesto (perspectiva + BEV) con seguimiento de poses, matriz $H$ y disparos de zonas FSM.
-* `events.jsonl`: Telemetría estructurada frame a frame con latencias por etapa ($T_1$), identificadores de track y tiempos de permanencia.
-* `summary.json`: Resumen cuantitativo de rendimiento (FPS, latencias $p50/p95/p99$ y transiciones de estado).
-
-| Dataset | Resolución | FPS Medido | Latencia Media ($T_1$) | $p95$ Latencia | Estado de Prueba |
+| Dataset | Resolución | FPS Medido | Latencia Media ($T_1$) | $p95$ Latencia | Estado de Validación |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`mendeley_industrial`** | $1920 \times 1080$ | $34.8\text{ FPS}$ | $17.74\text{ ms}$ | $24.42\text{ ms}$ | ✅ Validado (CCTV en planta de manufactura / pasillo de seguridad) |
-| **`opencv_vtest`** | $768 \times 576$ | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Validado (Detección de intrusión e inmovilización) |
-| **`openvino_people`** | $1920 \times 1080$ | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Validado (Tránsito en pasillo comercial 1080p) |
-| **`pets2009_s2_l1`** | $768 \times 576$ | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Validado (Seguimiento multi-objetivo y zona de plaza) |
-
-
-
+| **`synthetic_sequence_a`** | $1280 \times 720$ | $51.4\text{ FPS}$ | $16.24\text{ ms}$ | $24.68\text{ ms}$ | ✅ Ground truth exacto: incursión limpia |
+| **`synthetic_sequence_b`** | $1280 \times 720$ | $36.5\text{ FPS}$ | $24.07\text{ ms}$ | $28.94\text{ ms}$ | ✅ Ground truth exacto: oclusión de pies |
+| **`synthetic_sequence_c`** | $1280 \times 720$ | $37.4\text{ FPS}$ | $23.44\text{ ms}$ | $28.02\text{ ms}$ | ✅ Ground truth exacto: permanencia / dwell |
+| **`mendeley_industrial`** | $1920 \times 1080$ | $37.5\text{ FPS}$ | $15.35\text{ ms}$ | $18.26\text{ ms}$ | ✅ Planta real: intervención no autorizada en máquina |
+| **`opencv_vtest`** | $768 \times 576$ | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ CCTV urbano: intrusión en zona y enclave lockout |
+| **`openvino_people`** | $1920 \times 1080$ | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Pasillo comercial: pose 1080p unletterboxed |
+| **`pets2009_s2_l1`** | $768 \times 576$ | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Explanada: tracking multiobjetivo y oclusiones |

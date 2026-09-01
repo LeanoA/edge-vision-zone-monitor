@@ -429,11 +429,17 @@ python scripts/run_dataset_test.py --dataset pets2009_s2_l1 --no-display
 
 ### Resumen de Métricas Empíricas de Validación (ISO 13855 / $T_1 \le 50\text{ ms}$)
 
-| Dataset / Secuencia | Escenario | Resolución | Frames | Throughput | Latencia Media ($T_1$) | $p95$ Latencia | Estado de Validación |
+| Dataset / Secuencia | Escenario / Entorno | Resolución | Frames | Throughput | Latencia Media ($T_1$) | $p95$ Latencia | Estado de Validación |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`pets2009_s2_l1`** | Plaza Multi-Target (Cruce & Oclusión) | $768 \times 576$ | 795 | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Validado (Incursión y retención en lockout) |
-| **`opencv_vtest`** | CCTV Vigilancia Peatonal | $768 \times 576$ | 795 | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Validado (Detección de intrusión en zona) |
-Para la memoria técnica completa, especificaciones métricas y análisis de casos borde, consultar [docs/data/datasets.md](docs/data/datasets.md).
+| **`synthetic_sequence_a`** | Celda de Seguridad (Incursión Limpia) | $1280 \times 720$ | 180 | $51.4\text{ FPS}$ | $16.24\text{ ms}$ | $24.68\text{ ms}$ | ✅ Ground truth exacto ($\text{err} = 0.0\text{ mm}$) |
+| **`synthetic_sequence_b`** | Celda de Seguridad (Oclusión de Pies) | $1280 \times 720$ | 180 | $36.5\text{ FPS}$ | $24.07\text{ ms}$ | $28.94\text{ ms}$ | ✅ Validado (Degradación y coasting Kalman) |
+| **`synthetic_sequence_c`** | Celda de Seguridad (Permanencia / Dwell) | $1280 \times 720$ | 300 | $37.4\text{ FPS}$ | $23.44\text{ ms}$ | $28.02\text{ ms}$ | ✅ Validado (Temporizador dwell desacoplado) |
+| **`mendeley_industrial`** | Planta Industrial (Intervención en Máquina) | $1920 \times 1080$ | 173 | $37.5\text{ FPS}$ | $15.35\text{ ms}$ | $18.26\text{ ms}$ | ✅ Validado (Pose $1080\text{p}$ y pre-alerta) |
+| **`opencv_vtest`** | CCTV Vigilancia Peatonal | $768 \times 576$ | 795 | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Validado (Detección de intrusión y lockout) |
+| **`openvino_people`** | Pasillo Mall Peatonal (Full HD) | $1920 \times 1080$ | 302 | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Validado (Tránsito perimetral seguro 1080p) |
+| **`pets2009_s2_l1`** | Plaza Multi-Target (Cruce & Oclusión) | $768 \times 576$ | 795 | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Validado (Seguimiento denso y explanada) |
+
+Para la memoria técnica completa, particularidades metrológicas de cada dataset, catálogo de celdas robóticas industriales (`InHARD`, `HA4M`) y descubrimientos de ingeniería, consultar [docs/data/datasets.md](docs/data/datasets.md).
 
 ---
 
