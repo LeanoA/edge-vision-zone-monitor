@@ -433,7 +433,28 @@ python scripts/run_dataset_test.py --dataset pets2009_s2_l1 --no-display
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`pets2009_s2_l1`** | Plaza Multi-Target (Cruce & Oclusión) | $768 \times 576$ | 795 | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Validado (Incursión y retención en lockout) |
 | **`opencv_vtest`** | CCTV Vigilancia Peatonal | $768 \times 576$ | 795 | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Validado (Detección de intrusión en zona) |
-| **`openvino_people`** | Pasillo Mall Peatonal (Full HD) | $1920 \times 1080$ | 302 | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Validado (Tránsito perimetral seguro 1080p) |
-
 Para la memoria técnica completa, especificaciones métricas y análisis de casos borde, consultar [docs/data/datasets.md](docs/data/datasets.md).
+
+---
+
+## 🔍 Problemas Conocidos y Hoja de Ruta de Seguimiento (MOT Challenges)
+
+Durante las pruebas de estrés con datasets de alta densidad peatonal y oclusiones complejas (`pets2009_s2_l1` y `opencv_vtest`), se han catalogado los siguientes desafíos en la capa de seguimiento multiobjetivo (*Multi-Object Tracking - MOT*):
+
+### 1. Fragmentación de Tracks y Cambio de Identidad (*ID Switching* / Cambio de Color)
+* **Síntoma:** Al ocurrir un cruce o una oclusión parcial entre personas, un operario pierde su vector de seguimiento y, al reaparecer tras unos cuadros, se le asigna un nuevo identificador (`ID: X` $\to$ `ID: Y`), lo que provoca que su color cambie repentinamente en la visualización cenital (BEV).
+* **Causa Raíz:** La ventana de espera durante oclusiones en el tracker cinemático ([`src/core/kalman_filter.py`](src/core/kalman_filter.py)) está fijada en `max_missed = 5` cuadros ($\approx 150\text{ ms}$). Si la oclusión supera este umbral, el track se destruye (`TrackState.DELETED`) y el re-ingreso se interpreta como un nuevo sujeto.
+* **Solución Propuesta:** 
+  1. Ampliar el horizonte de *coasting* a $15 - 20$ cuadros ($0.5\text{s} - 0.7\text{s}$) aprovechando el modelo epistemológico asimétrico ([ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md)), permitiendo que la predicción de Kalman mantenga viva la hipótesis espacial.
+  2. Implementar asignación combinatoria global mediante el **Algoritmo Húngaro (Munkres / `scipy.optimize.linear_sum_assignment`)** sobre la matriz de distancias métricas, sustituyendo la asignación codiciosa (*greedy*).
+
+### 2. Vectores Múltiples y Duplicados sobre el Mismo Sujeto (*Ghost / Duplicate Tracks*)
+* **Síntoma:** En momentos específicos, una sola persona puede mostrar dos o tres vectores de velocidad y puntos de apoyo simultáneos de distintos colores.
+* **Causa Raíz:** Cuando el detector YOLO entrega dos propuestas de cajas o articulaciones cercanas sobre el mismo cuerpo (por ejemplo, extremidades separadas o falsos positivos en umbral de NMS 2D), la asignación *greedy* inicializa un segundo track en paralelo al no encontrar coincidencia biunívoca.
+* **Solución Propuesta:**
+  1. **Supresión Espacial al Nacer (*World-Space Spatial NMS*):** Imponer una regla de no-nacimiento: prohibir la inicialización de un nuevo track si ya existe un track confirmado/activo a una distancia métrica menor al radio del cuerpo humano ($d < 0.6\text{ m}$).
+  2. **Fusión de Tracks Cercanos (*Track Merging*):** Colapsar tracks con covarianzas solapadas y trayectorias convergentes.
+
+---
+
 
