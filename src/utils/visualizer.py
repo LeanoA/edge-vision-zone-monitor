@@ -42,15 +42,69 @@ class DualVisualizer:
         self,
         homography: HomographyManager,
         fsm: SpatialFSM,
-        bev_scale: float = 100.0,
+        bev_scale: Optional[float] = None,
         bev_size: Tuple[int, int] = (600, 600),
+        world_bounds: Optional[Tuple[float, float, float, float]] = None,
         headless: bool = False,
     ) -> None:
         self.homography = homography
         self.fsm = fsm
-        self.bev_scale = float(bev_scale)
         self.bev_size = bev_size  # (width, height)
         self.headless = bool(headless)
+
+        # Compute dynamic world bounds if not explicitly supplied
+        if world_bounds is not None:
+            self._world_min_x, self._world_min_y, self._world_max_x, self._world_max_y = [
+                float(v) for v in world_bounds
+            ]
+        else:
+            pts = []
+            try:
+                pts.extend(list(self.fsm.danger_polygon.exterior.coords))
+            except Exception:
+                pass
+            try:
+                pts.extend(list(self.fsm.release_polygon.exterior.coords))
+            except Exception:
+                pass
+            if hasattr(self.homography, "_world_points") and self.homography._world_points is not None:
+                pts.extend(self.homography._world_points.tolist())
+
+            if pts:
+                arr = np.array(pts, dtype=np.float64)
+                raw_min_x, raw_min_y = float(np.min(arr[:, 0])), float(np.min(arr[:, 1]))
+                raw_max_x, raw_max_y = float(np.max(arr[:, 0])), float(np.max(arr[:, 1]))
+                span_x = max(raw_max_x - raw_min_x, 1.0)
+                span_y = max(raw_max_y - raw_min_y, 1.0)
+                margin_x = max(span_x * 0.15, 1.0)
+                margin_y = max(span_y * 0.15, 1.0)
+                self._world_min_x = float(raw_min_x - margin_x)
+                self._world_max_x = float(raw_max_x + margin_x)
+                self._world_min_y = float(raw_min_y - margin_y)
+                self._world_max_y = float(raw_max_y + margin_y)
+            else:
+                self._world_min_x, self._world_min_y, self._world_max_x, self._world_max_y = (
+                    0.0,
+                    0.0,
+                    6.0,
+                    6.0,
+                )
+
+        # Calculate scale and offsets to fit inside bev_size canvas
+        span_w = max(self._world_max_x - self._world_min_x, 0.1)
+        span_h = max(self._world_max_y - self._world_min_y, 0.1)
+        w_px, h_px = self.bev_size
+
+        if bev_scale is not None:
+            self.bev_scale = float(bev_scale)
+            self._bev_offset_x = 0.0
+            self._bev_offset_y = 0.0
+            self._world_min_x = 0.0
+            self._world_min_y = 0.0
+        else:
+            self.bev_scale = float(min(w_px / span_w, h_px / span_h))
+            self._bev_offset_x = (w_px - span_w * self.bev_scale) / 2.0
+            self._bev_offset_y = (h_px - span_h * self.bev_scale) / 2.0
 
         # Precompute static H^-1 reprojections of zones for perspective overlay
         self._danger_img_poly: Optional[np.ndarray] = None
@@ -80,9 +134,14 @@ class DualVisualizer:
             self._release_img_poly = None
 
     def _world_to_bev(self, x_w: float, y_w: float) -> Tuple[int, int]:
-        """Convert metric ground world coordinates (m) to BEV canvas pixels."""
-        u = int(round(x_w * self.bev_scale))
-        v = int(round(y_w * self.bev_scale))
+        """
+        Convert metric ground world coordinates (m) to BEV canvas pixels.
+        Oriented such that bottom of canvas (v ~= H) is closest to camera baseline,
+        and top of canvas (v ~= 0) is farthest into scene depth.
+        """
+        w, h = self.bev_size
+        u = int(round(self._bev_offset_x + (x_w - self._world_min_x) * self.bev_scale))
+        v = int(round(h - 1 - self._bev_offset_y - (y_w - self._world_min_y) * self.bev_scale))
         return u, v
 
     def _precompute_bev_background(self) -> None:
@@ -90,20 +149,53 @@ class DualVisualizer:
         w, h = self.bev_size
         canvas = np.full((h, w, 3), 30, dtype=np.uint8)  # Dark gray background
 
-        # 1-meter major grid lines (100 px/m)
-        step = int(round(self.bev_scale))
-        for x in range(0, w, step):
-            cv2.line(canvas, (x, 0), (x, h), (55, 55, 55), 1)
-            cv2.putText(
-                canvas, f"{x / self.bev_scale:.0f}m", (x + 3, 15),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.35, (120, 120, 120), 1
-            )
-        for y in range(0, h, step):
-            cv2.line(canvas, (0, y), (w, y), (55, 55, 55), 1)
-            cv2.putText(
-                canvas, f"{y / self.bev_scale:.0f}m", (3, y + 12),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.35, (120, 120, 120), 1
-            )
+        # Determine metric grid step (1m, 2m, or 5m) based on extent
+        span_max = max(
+            self._world_max_x - self._world_min_x,
+            self._world_max_y - self._world_min_y,
+        )
+        if span_max <= 12.0:
+            step_m = 1.0
+        elif span_max <= 25.0:
+            step_m = 2.0
+        else:
+            step_m = 5.0
+
+        # Draw vertical grid lines (X axis)
+        x_start = np.floor(self._world_min_x / step_m) * step_m
+        x_curr = x_start
+        while x_curr <= self._world_max_x + step_m:
+            u, _ = self._world_to_bev(x_curr, self._world_min_y)
+            if 0 <= u < w:
+                cv2.line(canvas, (u, 0), (u, h), (55, 55, 55), 1)
+                cv2.putText(
+                    canvas,
+                    f"{x_curr:.0f}m",
+                    (u + 3, h - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.35,
+                    (120, 120, 120),
+                    1,
+                )
+            x_curr += step_m
+
+        # Draw horizontal grid lines (Y axis - depth)
+        y_start = np.floor(self._world_min_y / step_m) * step_m
+        y_curr = y_start
+        while y_curr <= self._world_max_y + step_m:
+            _, v = self._world_to_bev(self._world_min_x, y_curr)
+            if 0 <= v < h:
+                cv2.line(canvas, (0, v), (w, v), (55, 55, 55), 1)
+                cv2.putText(
+                    canvas,
+                    f"{y_curr:.0f}m",
+                    (5, v - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.35,
+                    (120, 120, 120),
+                    1,
+                )
+            y_curr += step_m
 
         # Draw release polygon (green / yellow boundary)
         try:
@@ -229,11 +321,10 @@ class DualVisualizer:
             cv2.circle(canvas, (u, v), 6, color, -1)
             cv2.circle(canvas, (u, v), 8, (255, 255, 255), 1)
 
-            # Draw velocity vector arrow (scaled: 1 m/s = 50 pixels)
-            arrow_scale = 50.0
-            u_end = int(round(u + vel[0] * arrow_scale))
-            v_end = int(round(v + vel[1] * arrow_scale))
+            # Draw velocity vector arrow using forward world projection (dt = 0.5s)
             if speed > 0.05:
+                dt = 0.5
+                u_end, v_end = self._world_to_bev(pos[0] + vel[0] * dt, pos[1] + vel[1] * dt)
                 cv2.arrowedLine(canvas, (u, v), (u_end, v_end), color, 2, tipLength=0.3)
 
             # Track label: ID, speed, dwell time

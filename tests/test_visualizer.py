@@ -199,3 +199,59 @@ def test_dual_visualizer_headless_fast_path(mock_pipeline_components, sample_pip
 
     assert out is frame  # direct return
     assert elapsed_ms < 0.5  # tight budget, spec < 0.1ms nominal
+
+
+def test_dual_visualizer_dynamic_auto_scaling_and_bounds(mock_pipeline_components, sample_pipeline_result):
+    """DualVisualizer auto-scales large ground geometries (e.g. 20m x 20m) without clipping."""
+    # Build large ground homography (20m x 20m)
+    img_pts = np.array([[100, 100], [1800, 100], [1800, 1000], [100, 1000]], dtype=np.float64)
+    world_pts = np.array([[0.0, 0.0], [20.0, 0.0], [20.0, 20.0], [0.0, 20.0]], dtype=np.float64)
+    homography = HomographyManager(image_points=img_pts, world_points=world_pts)
+
+    zone_cfg = ZoneConfig(
+        name="large_danger_zone",
+        danger_polygon=[(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)],
+        hysteresis_buffer_m=0.3,
+    )
+    fsm = SpatialFSM(zone_cfg)
+
+    # Initialize visualizer without hardcoded scale -> should auto-scale
+    visualizer = DualVisualizer(homography, fsm, bev_size=(600, 600))
+
+    # Check that scale is computed dynamically to fit 20m in 600px with margin
+    assert visualizer.bev_scale < 50.0
+
+    # Test coordinate mapping for distant ground coordinates (18m, 18m)
+    u, v = visualizer._world_to_bev(18.0, 18.0)
+    assert 0 <= u < 600
+    assert 0 <= v < 600
+
+    # Test near coordinate (1m, 1m)
+    u_near, v_near = visualizer._world_to_bev(1.0, 1.0)
+    assert 0 <= u_near < 600
+    assert 0 <= v_near < 600
+
+
+def test_dual_visualizer_bev_y_axis_orientation_depth_and_velocity(mock_pipeline_components, sample_pipeline_result):
+    """BEV vertical axis maps depth upward (v_far < v_near) and forward velocity points upward."""
+    homography, fsm = mock_pipeline_components
+    visualizer = DualVisualizer(homography, fsm, bev_size=(600, 600))
+
+    # 1. Depth mapping test: Near vs Far
+    u_near, v_near = visualizer._world_to_bev(3.0, 1.0)
+    u_far, v_far = visualizer._world_to_bev(3.0, 5.0)
+
+    # Near point (Yw=1.0) should have larger row index (closer to bottom) than far point (Yw=5.0)
+    assert v_near > v_far
+    assert u_near == u_far
+
+    # 2. Velocity projection test: forward movement (vy > 0) points upward (v_end < v_start)
+    pos = (3.0, 2.0)
+    vel_forward = (0.0, 2.0)  # 2 m/s forward
+    u_start, v_start = visualizer._world_to_bev(pos[0], pos[1])
+    u_end, v_end = visualizer._world_to_bev(pos[0] + vel_forward[0] * 0.5, pos[1] + vel_forward[1] * 0.5)
+
+    assert v_end < v_start
+    assert u_end == u_start
+
+
