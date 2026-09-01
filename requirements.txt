@@ -6,3 +6,4 @@ numpy>=1.24.0
 shapely>=2.0.0
 pyyaml>=6.0
 pytest>=7.0.0
+certifi>=2023.7.22
