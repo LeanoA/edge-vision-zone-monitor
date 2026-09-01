@@ -79,6 +79,16 @@ DATASET_REGISTRY: Dict[str, DatasetMetadata] = {
         expected_size_bytes=14056111,
         default_config="configs/datasets/mendeley_industrial.yaml",
     ),
+    "mendeley_walkway_violation": DatasetMetadata(
+        name="mendeley_industrial",
+        description="Mendeley Industrial Walkway Safety Dataset (Corridor Passage & Machine Incursion)",
+        filename="mendeley_walkway_violation.mp4",
+        primary_url="https://huggingface.co/datasets/Voxel51/Safe_and_Unsafe_Behaviours/resolve/main/data/mendeley_walkway_violation.mp4",
+        mirrors=(),
+        priority=1,
+        expected_size_bytes=25865947,
+        default_config="configs/datasets/mendeley_walkway_violation.yaml",
+    ),
     "oxford_town_centre": DatasetMetadata(
         name="oxford_town_centre",
         description="Oxford TownCentre 1080p CCTV Pedestrian Sequence (Loitering & Crossings)",

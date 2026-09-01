@@ -41,6 +41,7 @@ class DatasetTestConfig:
     no_display: bool = True
     realtime: bool = False
     conf_threshold: float = 0.4
+    min_ankle_bbox_height: float = 120.0
     max_frames: Optional[int] = None
 
 
@@ -162,6 +163,7 @@ class DatasetTestRunner:
             tracker=tracker,
             fsm=fsm,
             conf_threshold=self.config.conf_threshold,
+            min_ankle_bbox_height=self.config.min_ankle_bbox_height,
         )
 
         self.visualizer = DualVisualizer(
@@ -402,6 +404,12 @@ def parse_args() -> DatasetTestConfig:
         help="Keypoint/box confidence threshold.",
     )
     parser.add_argument(
+        "--min-ankle-bbox-height",
+        type=float,
+        default=120.0,
+        help="Minimum bounding box pixel height required to attempt ankle pose keypoints before degrading to bbox bottom (default: 120.0).",
+    )
+    parser.add_argument(
         "--max-frames",
         type=int,
         default=None,
@@ -439,6 +447,7 @@ def parse_args() -> DatasetTestConfig:
         no_display=parsed.no_display,
         realtime=parsed.realtime,
         conf_threshold=parsed.conf_threshold,
+        min_ankle_bbox_height=parsed.min_ankle_bbox_height,
         max_frames=parsed.max_frames,
     )
 

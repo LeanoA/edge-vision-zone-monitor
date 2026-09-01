@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from src.core.homography import HomographyManager
+from src.core.kalman_filter import AnchorSource
 from src.core.spatial_fsm import DwellState, OccupancyState, SafetyState, SpatialFSM
 from src.pipeline.safety_pipeline import LayoutMode, PipelineResult
 
@@ -30,6 +31,14 @@ TRACK_COLORS = [
     (255, 255, 0),   # Cyan
     (128, 0, 255),   # Violet
 ]
+
+# Anchor Source palette (BGR)
+ANCHOR_COLORS = {
+    AnchorSource.ANKLES_DUAL: (255, 255, 0),       # Cyan: Dual ankles midpoint
+    AnchorSource.ANKLE_SINGLE: (0, 255, 255),      # Yellow: Single ankle keypoint
+    AnchorSource.BBOX_BOTTOM: (255, 0, 255),       # Magenta: Bounding box bottom-center (Scale / Far-field fallback)
+    AnchorSource.TRACKER_PREDICTED: (0, 165, 255), # Orange: Coasting / Kalman prediction
+}
 
 
 class DualVisualizer:
@@ -258,10 +267,14 @@ class DualVisualizer:
                     pt = (int(round(kp[0])), int(round(kp[1])))
                     cv2.circle(canvas, pt, 3, (0, 255, 255), -1)
 
-            # Draw ground anchor
+            # Draw ground anchor with provenance-based color and tag
             if det.anchor is not None:
                 ax, ay = int(round(det.anchor[0])), int(round(det.anchor[1]))
-                cv2.drawMarker(canvas, (ax, ay), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 12, 2)
+                color = ANCHOR_COLORS.get(det.anchor_source, (0, 0, 255))
+                cv2.drawMarker(canvas, (ax, ay), color, cv2.MARKER_TILTED_CROSS, 12, 2)
+                if det.anchor_source is not None:
+                    tag = det.anchor_source.value
+                    cv2.putText(canvas, tag, (ax + 6, ay - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
 
         # 3. Render Status Banner
         banner_h = 45
@@ -327,8 +340,9 @@ class DualVisualizer:
                 u_end, v_end = self._world_to_bev(pos[0] + vel[0] * dt, pos[1] + vel[1] * dt)
                 cv2.arrowedLine(canvas, (u, v), (u_end, v_end), color, 2, tipLength=0.3)
 
-            # Track label: ID, speed, dwell time
-            label = f"ID:{track.track_id} {speed:.1f}m/s"
+            # Track label: ID, speed, dwell time, and anchor source if available
+            source_tag = f" [{track.anchor_source.value}]" if hasattr(track, "anchor_source") and track.anchor_source else ""
+            label = f"ID:{track.track_id} {speed:.1f}m/s{source_tag}"
             cv2.putText(canvas, label, (u + 10, v - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
         return canvas

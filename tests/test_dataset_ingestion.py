@@ -68,6 +68,8 @@ class TestDatasetConfigurations:
             "configs/datasets/opencv_vtest.yaml",
             "configs/datasets/openvino_people.yaml",
             "configs/datasets/pets2009_s2_l1.yaml",
+            "configs/datasets/mendeley_industrial.yaml",
+            "configs/datasets/mendeley_walkway_violation.yaml",
         ],
     )
     def test_yaml_config_validity(self, config_path: str) -> None:
