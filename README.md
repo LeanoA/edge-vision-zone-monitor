@@ -225,6 +225,11 @@ $$\begin{bmatrix} X' \\ Y' \\ W \end{bmatrix} = H \begin{bmatrix} u \\ v \\ 1 \e
 
 La matriz $H$ se estima mediante el algoritmo DLT (*Direct Linear Transformation*) con validación de no-colinealidad y condicionamiento en [`src/core/homography.py`](src/core/homography.py). Para más detalles conceptuales, consultar [ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md) y [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md).
 
+> **¿De dónde provienen las matrices de calibración?**
+> * **En Benchmarks Académicos (`PETS 2009`, `HA4M`):** Se consumen directamente las matrices intrínsecas $K$ y extrínsecas $[R \mid \mathbf{t}]$ (modelo Tsai) empaquetadas en los metadatos del dataset.
+> * **En Plantas Industriales y CCTV Real (`mendeley_industrial`, `opencv_vtest`):** Se identifican 4 puntos de referencia coplanares sobre el piso $(u_i, v_i) \leftrightarrow (X_i, Y_i)$ medidos in-situ (marcas de suelo, baldosas o líneas de seguridad), y el `HomographyManager` calcula la matriz DLT garantizando $RMSE < 0.05\text{ m}$.
+> *(Ver guía completa de calibración en [docs/data/datasets.md](docs/data/datasets.md#11-metodología-de-calibración-planar-dlt-y-fuentes-de-metadatos-de-cámara))*.
+
 ### 2. Autómata de Seguridad: Regiones Ortogonales Desacopladas (Statecharts) ([Ver ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md))
 
 Para evitar la conflación entre la **topología espacial** y la **acumulación temporal**, el sistema desacopla el razonamiento en dos autómatas concurrentes e independientes:

@@ -18,6 +18,47 @@ Para evaluar rigurosamente el pipeline de seguridad, las secuencias de video deb
 
 ---
 
+### 1.1 Metodología de Calibración Planar (DLT) y Fuentes de Metadatos de Cámara
+
+Una duda arquitectónica fundamental es: **¿Los datasets ya traen la matriz de homografía calibrada o la definimos nosotros?**
+
+Existen dos fuentes de datos para construir los archivos de configuración YAML:
+
+#### Categoría A: Datasets Académicos con Metadatos Explícitos de Calibración
+* **Ejemplos:** `PETS 2009`, `HA4M`.
+* **Información que provee el dataset:** Archivos XML/YAML con matrices de cámara completas según el modelo pinhole de Tsai:
+  * Matriz Intrínseca: $K = \begin{bmatrix} f_x & 0 & c_x \\ 0 & f_y & c_y \\ 0 & 0 & 1 \end{bmatrix}$ (distancia focal y centro óptico).
+  * Matriz Extrínseca: $[R \mid \mathbf{t}]$ (rotación e inclinación tridimensional respecto al piso).
+* **Cómo la usamos:** La homografía planar se deriva directamente de las dos primeras columnas de rotación y traslación:
+  $$H = K \begin{bmatrix} \mathbf{r}_1 & \mathbf{r}_2 & \mathbf{t} \end{bmatrix}$$
+
+#### Categoría B: Datasets de Videovigilancia y Plantas Industriales Reales
+* **Ejemplos:** `mendeley_industrial` (planta metalmecánica real), `opencv_vtest`, `openvino_people`.
+* **Información que provee el dataset:** Únicamente el metraje de video CCTV de cámara fija en alta resolución, sin matriz matricial explícita pero con referencias físicas reales en escena (líneas de seguridad pintadas en el suelo, ancho estándar de pasillos de $2.0\text{ m}$, juntas de baldosas o demarcaciones peatonales).
+* **Cómo la calibramos nosotros:**
+  1. Extraemos un cuadro estático y seleccionamos 4 vértices coplanares en el piso identificables en píxeles $(u_i, v_i)$.
+  2. Asignamos las medidas métricas del mundo real $(X_i, Y_i)$ correspondientes a las dimensiones físicas de la nave (ej. $10\text{m} \times 15\text{m}$).
+  3. El [`HomographyManager`](../../src/core/homography.py) resuelve el sistema homogéneo mediante el algoritmo **DLT (Direct Linear Transformation)** con descomposición en valores singulares (SVD) y valida que el error de reproyección sea $RMSE < 0.05\text{ m}$.
+
+#### Procedimiento de Calibración en una Celda de Producción Real:
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│              PROCEDIMIENTO DE INSTALACIÓN EN FÁBRICA                     │
+├──────────────────────────────────────────────────────────────────────────┤
+│ 1. Montaje Fijo   │ Instalar cámara CCTV fija (sin PTZ) a 3-4m de altura.│
+├──────────────────────────────────────────────────────────────────────────┤
+│ 2. Marcado Físico │ Colocar 4 marcas o cinta en el suelo (Z=0).         │
+│                   │ Medir con telémetro láser las distancias métricas.   │
+├──────────────────────────────────────────────────────────────────────────┤
+│ 3. Perfil YAML    │ Ingresar los 4 pares [u, v] <-> [X, Y] y los         │
+│                   │ polígonos de peligro de la máquina en el .yaml.      │
+├──────────────────────────────────────────────────────────────────────────┤
+│ 4. Verificación   │ El HomographyManager audita κ(H) y RMSE en runtime.  │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 2. Catálogo de Datasets: Características y Ground Truth
 
 ### 2.1 Muestras Sintéticas Locales con Ground Truth Analítico Exacto
