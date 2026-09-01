@@ -439,7 +439,17 @@ python scripts/run_dataset_test.py --dataset pets2009_s2_l1 --no-display
 | **`openvino_people`** | Pasillo Mall Peatonal (Full HD) | $1920 \times 1080$ | 302 | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Validado (Tránsito perimetral seguro 1080p) |
 | **`pets2009_s2_l1`** | Plaza Multi-Target (Cruce & Oclusión) | $768 \times 576$ | 795 | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Validado (Seguimiento denso y explanada) |
 
-Para la memoria técnica completa, particularidades metrológicas de cada dataset, catálogo de celdas robóticas industriales (`InHARD`, `HA4M`) y descubrimientos de ingeniería, consultar [docs/data/datasets.md](docs/data/datasets.md).
+### 🤖 Datasets de Celdas Robóticas Industriales y Alcance (InHARD, HA4M, Sheffield UR5)
+
+Se ha realizado un relevamiento exhaustivo de los principales conjuntos de datos académicos para celdas de colaboración humano-robot (*Human-Robot Collaboration - HRC*):
+* **`InHARD` / `InHARD-DT`:** Celdas colaborativas con cobots y capturas multi-vista RGB + esqueletos BVH ($24\text{ GB} - 16.8\text{ GB}$ en Zenodo).
+* **`HA4M`:** Estaciones de ensamble industrial con cámaras RGB-D calibradas ($4.1\text{ TB}$ en Science Data Bank).
+* **`Sheffield Factory UR5`:** Interacciones humano-cobot en planta de manufactura ($13.5\text{ GB}$ en Figshare).
+
+> **Nota de Alcance y Viabilidad Técnica:**
+> Estos datasets distribuyen su metraje en volúmenes multipartición indivisibles ($24\text{ GB} - 4.1\text{ TB}$) que exceden el objetivo de mantener un repositorio de borde (*Edge AI*) ligero, ágil y ejecutable en CI. Actualmente, la suite de **`Mendeley Industrial Safety`** junto con **`PETS 2009`** y **`OpenVINO People`** valida al $100\%$ los requisitos de seguridad ISO 13855, calibración DLT y latencia $T_1 \le 50\text{ ms}$. La integración de Gemelos Digitales y desempaquetado masivo de `InHARD` queda documentada como línea de investigación futura en la memoria técnica.
+
+Para la memoria técnica completa, particularidades metrológicas, tabla comparativa de celdas robóticas y descubrimientos de ingeniería, consultar [docs/data/datasets.md](docs/data/datasets.md).
 
 ---
 

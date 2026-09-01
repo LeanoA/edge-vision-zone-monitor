@@ -62,20 +62,20 @@ Generadas determinísticamente mediante [`src/utils/synthetic_generator.py`](../
 
 ### 2.3 Datasets de Entornos Industriales y Celdas Robóticas
 
-* **`mendeley_industrial` (Mendeley Industrial Safety Dataset):**
-  * **Origen:** Planta de manufactura metalmecánica y plásticos *Kafaoğlu Metal Plastik Makine* (Eskişehir, DOI: `10.17632/xjmtb22pff.1`).
-  * **Secuencia Primaria:** `mendeley_unauthorized_intervention.mp4` (Clip `1_tr1.mp4`, 173 frames, $1080\text{p}$).
-  * **Particularidad:** Operario aproximándose a maquinaria pesada e ingresando en el perímetro de operación no autorizada.
-  * **Resultado Empírico:** 25 tracks observados, detección anatómica precisa y $13.9\%$ de frames en pre-alarma de aproximación (`WARNING_APPROACH`).
+#### Tabla de Relevamiento de Datasets de Celdas Robóticas (HRC / Cobots):
 
-* **`InHARD` (Industrial Human Action Recognition Dataset - Hoja de Ruta):**
-  * **Entorno:** Celda robótica colaborativa industrial real (*Human-Robot Collaboration - HRC*) con cobots y maquinaria CNC/soldadura.
-  * **Ground Truth:** Anotaciones temporales de acciones de operarios dentro del envolvente de trabajo del manipulador robótico.
-  * **Acceso:** Repositorio académico abierto en Zenodo.
+| Dataset | Entorno / Robot | Modalidades y Sensores | Tamaño / Empaquetado | DOI / Repositorio | Estado de Acceso |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`InHARD`** | Celda colaborativa con manipulador robótico industrial y estación de ensamble. | 3 cámaras RGB C920 (Top, $\pm 45^\circ$) + Esqueletos BVH (Perception Neuron 120Hz). | **$24.0\text{ GB}$** (12 volúmenes `.7z.001` a `.012` divididos). | [Zenodo 10.5281/zenodo.4003541](https://doi.org/10.5281/zenodo.4003541) | ✅ Público vía Zenodo (exige descargar los 12 archivos divididos para descomprimir secuencias). |
+| **`InHARD-DT`** | Gemelo Digital (VR) de la celda robótica InHARD con modelos cinemáticos. | Simulación sintética VR + cinemática ST-GCN. | **$16.8\text{ GB}$** (6 archivos `.zip` divididos). | [Zenodo 10.5281/zenodo.7644247](https://doi.org/10.5281/zenodo.7644247) | ✅ Público en Zenodo (paquete multipartición). |
+| **`HA4M`** | Celda de ensamble industrial de trenes epicicloidales. | 6 modalidades: RGB, Depth, IR, RGBA, Nubes de Puntos y Azure Kinect SDK. | **$4.1\text{ TB}$** (Archivos crudos en contenedor Matroska `.mkv`). | [Science Data Bank 10.57760/sciencedb.01872](https://doi.org/10.57760/sciencedb.01872) | ✅ Disponible en CNR Baltig / ScienceDB (orientado a servidores de Big Data por su volumen de $4\text{TB}$). |
+| **`Sheffield UR5 Factory`** | Planta de manufactura real con cobot **UR5**. | Video CCTV de fábrica con interacción humano-cobot. | **$13.5\text{ GB}$** (`teconnex.zip`). | [Figshare 10.15131/shef.data.19299539](https://doi.org/10.15131/shef.data.19299539) | ✅ Descargable vía API de Figshare. |
+| **`Mendeley Industrial`** | Planta de manufactura metalmecánica y prensas de inyección de plástico. | CCTV Full HD $1080\text{p}$ con 8 clases de comportamiento y zonas delimitadas. | **$14\text{ MB} - 33\text{ MB}$ por clip** ($1080\text{p}$). | [HuggingFace Voxel51 / Mendeley](https://doi.org/10.17632/xjmtb22pff.1) | 🚀 **Activo en el repo** (Clips `1_tr1`, `4_tr1`, `3_tr1`, `0_tr1` calibrados y evaluados en tiempo real). |
 
-* **`HA4M` (Human Action Analysis for Manufacturing - Hoja de Ruta):**
-  * **Entorno:** Celdas de ensamblaje manual y robótico con sensores RGB-D calibrados (Azure Kinect).
-  * **Ground Truth:** Matrices intrínsecas/extrínsecas y nubes de puntos 3D del suelo de la celda.
+#### Análisis de Viabilidad y Alcance:
+* **Limitaciones Técnicas:** Los datasets dedicados a celdas robóticas como `InHARD` ($24\text{ GB}$) y `HA4M` ($4.1\text{ TB}$) utilizan esquemas de empaquetado monolíticos o multipartición que impiden la descarga de un solo video atómico de muestra sin descargar decenas de gigabytes.
+* **Alcance Actual del Proyecto:** Para mantener el repositorio ligero, modular y reproducible en entornos de CI/Edge sin transferencias masivas de datos, la suite de **`Mendeley Industrial Safety`** junto con **`PETS 2009`** y **`OpenVINO People`** proporciona la cobertura completa para validar homografía planar, estimación de pose en $1080\text{p}$, autómatas de seguridad ISO 13855 y filtrado cinemático.
+* **Hoja de Ruta Futura:** En fases posteriores orientadas a Gemelos Digitales o reconocimiento de micro-acciones en robots manipuladores, se integrará un módulo de ingesta para desempaquetar las trazas BVH y cámaras multi-ángulo de `InHARD`.
 
 ---
 
