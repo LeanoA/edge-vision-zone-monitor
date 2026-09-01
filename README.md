@@ -461,6 +461,14 @@ Durante las pruebas de estrés con datasets de alta densidad peatonal y oclusion
   1. **Supresión Espacial al Nacer (*World-Space Spatial NMS*):** Imponer una regla de no-nacimiento: prohibir la inicialización de un nuevo track si ya existe un track confirmado/activo a una distancia métrica menor al radio del cuerpo humano ($d < 0.6\text{ m}$).
   2. **Fusión de Tracks Cercanos (*Track Merging*):** Colapsar tracks con covarianzas solapadas y trayectorias convergentes.
 
+### 3. Gap de Dominio en Videos Sintéticos vs YOLO (*Synthetic Domain Gap*)
+* **Síntoma:** En las secuencias sintéticas locales (`sequence_a/b/c`), YOLO11-Pose no genera detecciones ($\text{conf} < 0.25$) al recibir figuras dibujadas con primitivas vectoriales planas de OpenCV (`cv2.rectangle`, `cv2.line`).
+* **Estrategia Acordada:**
+  1. **Opción 1 (Seleccionada para CI & Pruebas Unitarias):** Inyección directa de Ground Truth analítico en el pipeline salteando YOLO. Permite validar determinísticamente el $100\%$ de la lógica de seguridad (Kalman, FSM, Homografía, Dwell) a nivel milimétrico sin consumo de inferencia.
+  2. **Opción 2 (Seleccionada para Flujo E2E):** Incrustar recortes fotográficos reales de operarios ($PNG$ Alpha) proyectados sobre el suelo para alimentar a YOLO con texturas humanas reales.
+  3. **Opción 3 (Descartada):** Renderizado 3D complejo (Blender/Isaac Sim), descartado por sobrecarga computacional fuera de alcance.
+
 ---
+
 
 

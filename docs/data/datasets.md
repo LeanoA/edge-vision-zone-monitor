@@ -133,6 +133,15 @@ Durante la integración y evaluación de estos datasets, se identificaron y reso
 
 ---
 
+### 3.5 Hallazgo 5: Gap de Dominio en Videos Sintéticos (Domain Gap en Deep Learning)
+* **Problema:** Las secuencias sintéticas actuales (`sequence_a/b/c`) dibujan al operario mediante primitivas vectoriales planas de OpenCV (`cv2.rectangle`, `cv2.line`). Al estar YOLO11-Pose entrenado sobre fotografías reales de MS COCO (gradientes de iluminación, pliegues de ropa, texturas de piel), los mapas de activación de la red entregan confianza nula ($\text{conf} < 0.25$), por lo que el detector no genera propuestas de pose sobre las figuras geométricas simples.
+* **Estrategia de Solución Acordada:**
+  1. **Opción 1: Inyección Analítica / Mock Ground Truth (Seleccionada para CI & Core):** El generador sintético exporta las coordenadas analíticas exactas de los 17 keypoints y el bounding box en formato `.json` o memoria para ser consumidos directamente por el tracker y la FSM sin inferencia YOLO. Proporciona una suite determinista, exacta y ultrarrápida para integración continua.
+  2. **Opción 2: Composición Fotorealista 2D con Sprites Alpha (Seleccionada para End-to-End):** Incrustar recortes fotográficos reales de operarios ($PNG$ con canal Alpha transparente) proyectados por la homografía sobre el fondo de la nave, permitiendo que YOLO detecte la silueta con alta confianza ($> 0.85$) sin perder el control de la trayectoria.
+  3. **Opción 3: Motores de Simulación 3D (Descartada):** Descartada formalmente por sobrecarga computacional y complejidad innecesaria para los objetivos del proyecto.
+
+---
+
 ## 4. Tabla Comparativa Integral de Rendimiento
 
 | Dataset | Resolución | FPS Medido | Latencia Media ($T_1$) | $p95$ Latencia | Estado de Validación |
