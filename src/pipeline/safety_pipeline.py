@@ -180,20 +180,35 @@ def extract_ground_anchor(
     pad_y: float = 0.0,
     allow_bbox_fallback: bool = True,
     det_score: float = 1.0,
+    min_ankle_bbox_height: float = 0.0,
 ) -> Optional[Tuple[Tuple[float, float], AnchorSource, float]]:
     """
     Extract ground anchor point with 4-tier graceful degradation hierarchy.
 
     Tiers:
-    1. ANKLES_DUAL: Both ankles >= conf_threshold -> midpoint, avg conf.
-    2. ANKLE_SINGLE: Exactly one ankle >= conf_threshold -> single ankle, conf * 0.75.
-    3. BBOX_BOTTOM: Both ankles < conf_threshold & allow_bbox_fallback=True & valid bbox ->
+    1. ANKLES_DUAL: Both ankles >= conf_threshold (and bbox height >= min_ankle_bbox_height) -> midpoint, avg conf.
+    2. ANKLE_SINGLE: Exactly one ankle >= conf_threshold (and bbox height >= min_ankle_bbox_height) -> single ankle, conf * 0.75.
+    3. BBOX_BOTTOM: Both ankles < conf_threshold (or bbox height < min_ankle_bbox_height) & allow_bbox_fallback=True & valid bbox ->
        bottom-center ((x1+x2)/2, y2), det_score * 0.40.
-    4. Dropout: Both ankles < conf_threshold & no bbox/fallback disabled -> None.
+    4. Dropout: Keypoints occluded / below height & no bbox/fallback disabled -> None.
 
     Returns:
         Tuple of ((u, v), AnchorSource, confidence) in original frame coords, or None.
     """
+    # Scale-adaptive check: if bounding box height is below threshold, immediately route to Tier 3 BBOX_BOTTOM
+    if bbox is not None and min_ankle_bbox_height > 0.0:
+        bbox_h = abs(float(bbox[3]) - float(bbox[1]))
+        if bbox_h < min_ankle_bbox_height:
+            if allow_bbox_fallback:
+                x1, y1, x2, y2 = bbox
+                bottom_cx = (x1 + x2) / 2.0
+                bottom_cy = y2
+                anchor_pt = unletterbox_point(bottom_cx, bottom_cy, scale, pad_x, pad_y)
+                conf = float(det_score) * 0.40
+                return anchor_pt, AnchorSource.BBOX_BOTTOM, conf
+            else:
+                return None
+
     left_ankle = keypoints[15]
     right_ankle = keypoints[16]
 
@@ -222,10 +237,6 @@ def extract_ground_anchor(
         x1, y1, x2, y2 = bbox
         bottom_cx = (x1 + x2) / 2.0
         bottom_cy = y2
-        # Note: if bbox is already in original frame coordinates, no unletterbox is needed;
-        # but if scale/pad are non-trivial and bbox is in letterbox space, it would unletterbox.
-        # Following spec: un-letterbox coordinate mapping applied across all tiers.
-        # If bbox is already passed unletterboxed (or scale=1.0, pad=0.0), unletterbox_point is identity.
         anchor_pt = unletterbox_point(bottom_cx, bottom_cy, scale, pad_x, pad_y)
         conf = float(det_score) * 0.40
         return anchor_pt, AnchorSource.BBOX_BOTTOM, conf
@@ -291,12 +302,14 @@ class SafetyPipeline:
         tracker: "MultiTargetKalmanTracker",
         fsm: "SpatialFSM",
         conf_threshold: float = 0.5,
+        min_ankle_bbox_height: float = 0.0,
     ) -> None:
         self.engine = engine
         self.homography = homography
         self.tracker = tracker
         self.fsm = fsm
         self.conf_threshold = float(conf_threshold)
+        self.min_ankle_bbox_height = float(min_ankle_bbox_height)
         self._frame_id = 0
 
     def parse_detections(
@@ -375,6 +388,7 @@ class SafetyPipeline:
                 pad_y=0.0,
                 allow_bbox_fallback=True,
                 det_score=float(scores[idx]),
+                min_ankle_bbox_height=self.min_ankle_bbox_height,
             )
 
             if extracted is not None:
