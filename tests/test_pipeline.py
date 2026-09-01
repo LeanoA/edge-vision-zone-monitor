@@ -146,6 +146,46 @@ def test_letterbox_pillarbox_triangulation():
     assert orig[1] == pytest.approx(600.0)
 
 
+def test_unletterbox_keypoints_letterbox_and_pillarbox():
+    """unletterbox_keypoints transforms (17, 3) keypoint arrays accurately across aspect ratios."""
+    from src.pipeline.safety_pipeline import unletterbox_keypoints
+
+    # 1. Test 16:9 Letterbox (1920x1080 -> 640x640: scale=1/3, pad_y=140, pad_x=0)
+    scale_16_9 = 640.0 / 1920.0  # 0.33333333
+    pad_x_16_9 = 0.0
+    pad_y_16_9 = (640.0 - 1080.0 * scale_16_9) / 2.0  # 140.0
+
+    kps = np.zeros((17, 3), dtype=np.float32)
+    kps[0] = [320.0, 320.0, 0.95]   # Nose at center of active area -> (960, 540)
+    kps[15] = [300.0, 440.0, 0.88]  # Left ankle -> (900, 900)
+    kps[16] = [340.0, 440.0, 0.92]  # Right ankle -> (1020, 900)
+
+    unletterboxed = unletterbox_keypoints(kps, scale_16_9, pad_x_16_9, pad_y_16_9)
+
+    assert unletterboxed.shape == (17, 3)
+    assert unletterboxed[0, 0] == pytest.approx(960.0, abs=1e-3)
+    assert unletterboxed[0, 1] == pytest.approx(540.0, abs=1e-3)
+    assert unletterboxed[0, 2] == pytest.approx(0.95)
+    assert unletterboxed[15, 0] == pytest.approx(900.0, abs=1e-3)
+    assert unletterboxed[15, 1] == pytest.approx(900.0, abs=1e-3)
+    assert unletterboxed[15, 2] == pytest.approx(0.88)
+    assert unletterboxed[16, 0] == pytest.approx(1020.0, abs=1e-3)
+    assert unletterboxed[16, 1] == pytest.approx(900.0, abs=1e-3)
+    assert unletterboxed[16, 2] == pytest.approx(0.92)
+
+    # 2. Test Pillarbox (600x1200 -> 640x640: scale=640/1200, pad_x=160, pad_y=0)
+    scale_pill = 640.0 / 1200.0
+    pad_x_pill = 160.0
+    pad_y_pill = 0.0
+
+    kps_pill = np.zeros((17, 3), dtype=np.float32)
+    kps_pill[0] = [320.0, 320.0, 0.80]  # Center -> (300, 600)
+    unletterboxed_pill = unletterbox_keypoints(kps_pill, scale_pill, pad_x_pill, pad_y_pill)
+    assert unletterboxed_pill[0, 0] == pytest.approx(300.0, abs=1e-3)
+    assert unletterboxed_pill[0, 1] == pytest.approx(600.0, abs=1e-3)
+    assert unletterboxed_pill[0, 2] == pytest.approx(0.80)
+
+
 def test_ankle_anchor_extraction_dual_midpoint():
     """Dual ankle detections above confidence threshold calculate midpoint."""
     from src.pipeline.safety_pipeline import extract_ankle_anchor

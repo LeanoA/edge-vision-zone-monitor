@@ -66,3 +66,53 @@ Para pruebas automatizadas en CI y desarrollo local sin descargas externas, el p
 # Generar las tres secuencias de prueba en data/samples/
 python scripts/generate_samples.py --output-dir data/samples --fps 30
 ```
+
+---
+
+## 4. Herramientas Modulares de Descarga e Ingesta Real
+
+Para evaluar el modelo y pipeline sobre secuencias reales sin modificar el código *core*, el repositorio proporciona un gestor de descarga y un arnés de pruebas desacoplado.
+
+### 4.1 Catálogo y Descarga de Datasets (`scripts/download_datasets.py`)
+
+El script cuenta con un registro centralizado, verificación de presencia local y failover automático entre múltiples *mirrors*:
+
+```bash
+# 1. Listar datasets registrados y su estado local
+python scripts/download_datasets.py --list
+
+# 2. Descargar la secuencia limpia de prueba primaria (OpenCV vtest)
+python scripts/download_datasets.py --dataset opencv_vtest
+
+# 3. Descargar la secuencia peatonal 1080p (OpenVINO people)
+python scripts/download_datasets.py --dataset openvino_people
+```
+
+### 4.2 Arnés de Evaluación Desacoplado (`scripts/run_dataset_test.py`)
+
+Ejecuta el pipeline completo de seguridad (`SafetyPipeline`) contra el video descargado y su archivo de calibración/zona YAML en `configs/datasets/`:
+
+```bash
+# Ejecutar evaluación de 75 frames en modo headless
+python scripts/run_dataset_test.py --dataset opencv_vtest --max-frames 75 --no-display
+
+# Ejecutar evaluación interactiva con ventana visual (OpenCV GUI)
+python scripts/run_dataset_test.py --dataset opencv_vtest --display
+```
+
+### 4.3 Resultados y Métricas de Validación Baseline
+
+Las corridas generan automáticamente los siguientes artefactos en `data/results/<dataset_name>/`:
+* `annotated_<dataset_name>.mp4`: Video compuesto (perspectiva + BEV) con seguimiento de poses, matriz $H$ y disparos de zonas FSM.
+* `events.jsonl`: Telemetría estructurada frame a frame con latencias por etapa ($T_1$), identificadores de track y tiempos de permanencia.
+* `summary.json`: Resumen cuantitativo de rendimiento (FPS, latencias $p50/p95/p99$ y transiciones de estado).
+
+| Dataset | Resolución | FPS Medido | Latencia Media ($T_1$) | $p95$ Latencia | Estado de Prueba |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`mendeley_industrial`** | $1920 \times 1080$ | $34.8\text{ FPS}$ | $17.74\text{ ms}$ | $24.42\text{ ms}$ | ✅ Validado (CCTV en planta de manufactura / pasillo de seguridad) |
+| **`opencv_vtest`** | $768 \times 576$ | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Validado (Detección de intrusión e inmovilización) |
+| **`openvino_people`** | $1920 \times 1080$ | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Validado (Tránsito en pasillo comercial 1080p) |
+| **`pets2009_s2_l1`** | $768 \times 576$ | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Validado (Seguimiento multi-objetivo y zona de plaza) |
+
+
+

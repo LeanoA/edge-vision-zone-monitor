@@ -34,8 +34,19 @@ htmlcov/
 *.pt
 *.onnx
 *.engine
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.tar.gz
+*.tar.bz2
+*.zip
 data/samples/*
 !data/samples/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
+data/results/*
+!data/results/.gitkeep
 benchmark_results.json
 *.log
 

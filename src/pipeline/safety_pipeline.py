@@ -141,6 +141,36 @@ def unletterbox_point(
     return float(orig_x), float(orig_y)
 
 
+def unletterbox_keypoints(
+    keypoints: np.ndarray,
+    scale: float,
+    pad_x: float,
+    pad_y: float,
+) -> np.ndarray:
+    """
+    Transform (17, 3) or (..., 3) keypoints from letterboxed canvas space to original frame space.
+
+    Args:
+        keypoints: Array of shape (..., 3) with [x, y, conf].
+        scale: Scaling factor applied during letterboxing.
+        pad_x: Horizontal padding offset in pixels.
+        pad_y: Vertical padding offset in pixels.
+
+    Returns:
+        New float32 array with unletterboxed (x, y) coordinates and unchanged confidence values.
+    """
+    if scale <= 0.0:
+        raise ValueError(f"Scale must be positive, got {scale}.")
+
+    out = np.array(keypoints, dtype=np.float32, copy=True)
+    if out.size == 0:
+        return out
+
+    out[..., 0] = (out[..., 0] - pad_x) / scale
+    out[..., 1] = (out[..., 1] - pad_y) / scale
+    return out
+
+
 def extract_ground_anchor(
     keypoints: np.ndarray,
     bbox: Optional[Tuple[float, float, float, float]] = None,
@@ -332,13 +362,15 @@ class SafetyPipeline:
                 kp_data = raw[5:56, idx].reshape(17, 3)
                 kps[:] = kp_data
 
-            # Extract anchor with graceful degradation hierarchy
-            # Passing unletterboxed bbox coords
+            # Map keypoint coordinates from letterboxed canvas back to original frame space
+            kps_orig = unletterbox_keypoints(kps, scale, pad_x, pad_y)
+
+            # Extract anchor with graceful degradation hierarchy using native frame coordinates
             extracted = extract_ground_anchor(
-                kps,
+                kps_orig,
                 bbox=(x1, y1, x2, y2),
                 conf_threshold=self.conf_threshold,
-                scale=1.0,  # x1, y1, x2, y2 already unletterboxed
+                scale=1.0,
                 pad_x=0.0,
                 pad_y=0.0,
                 allow_bbox_fallback=True,
@@ -353,7 +385,7 @@ class SafetyPipeline:
             detections.append(
                 PoseDetection(
                     bbox=(x1, y1, x2, y2),
-                    keypoints=kps,
+                    keypoints=kps_orig,
                     anchor=anchor,
                     anchor_source=anchor_source,
                     anchor_confidence=anchor_conf,

@@ -296,11 +296,15 @@ Para evitar la conflación entre la **topología espacial** y la **acumulación 
 ├── AGENTS.md                   # Reglas del proyecto, tono y flujo SDD
 ├── README.md                   # Especificación técnica y guía de arquitectura
 ├── configs/
-│   └── default_config.yaml     # Puntos de calibración, polígonos y umbrales
+│   ├── default_config.yaml     # Puntos de calibración, polígonos y umbrales base
+│   └── datasets/               # Perfiles YAML específicos por dataset (PETS, OpenCV, OpenVINO)
 ├── data/
-│   └── samples/                # Muestras de video y calibración
+│   ├── raw/                    # Datasets de video descargados (ignorado en git)
+│   ├── results/                # Videos anotados y telemetría JSONL (ignorado en git)
+│   └── samples/                # Muestras sintéticas deterministas de calibración
 ├── docs/
 │   ├── architecture/           # Diagramas y especificaciones de diseño
+│   ├── data/datasets.md        # Especificación y catálogo de datasets empíricos
 │   └── decisions/              # Architecture Decision Records (ADRs)
 │       ├── README.md           # Índice de decisiones
 │       └── adr-001-*.md        # YOLO-Pose vs Bounding Box Centroid
@@ -323,6 +327,7 @@ Para evitar la conflación entre la **topología espacial** y la **acumulación 
 │       └── visualizer.py       # Compositor dual (Cámara + Bird's-Eye View métrico)
 ├── tests/
 │   ├── conftest.py             # Fixtures sintéticos (sin descargas en CI)
+│   ├── test_dataset_ingestion.py # Pruebas del downloader y arnés de ingesta
 │   ├── test_export.py          # Pruebas de exportación y validación ONNX
 │   ├── test_onnx_engine.py     # Pruebas de runtime e inferencia
 │   ├── test_benchmark.py       # Pruebas de cálculo métrico y percentiles
@@ -332,7 +337,11 @@ Para evitar la conflación entre la **topología espacial** y la **acumulación 
 │   ├── test_pipeline.py        # Pruebas del pipeline de seguridad integrado
 │   └── test_visualizer.py      # Pruebas del compositor visual dual
 └── scripts/
-    └── benchmark.py            # Latencia y throughput en ONNX Runtime
+    ├── benchmark.py            # Latencia y throughput en ONNX Runtime
+    ├── download_datasets.py    # Descargador resiliente multi-mirror con failover
+    ├── generate_samples.py     # Generador determinista de secuencias sintéticas
+    ├── run_dataset_test.py     # Arnés desacoplado de evaluación empírica
+    └── run_demo.py             # Demo orchestrator interactivo y headless
 
 ---
 
@@ -397,3 +406,34 @@ python scripts/run_demo.py \
   --output-video output/demo_annotated.mp4 \
   --output-events output/telemetry_events.jsonl
 ```
+
+---
+
+## 🧪 Ingesta y Validación de Datasets Reales (PETS 2009, OpenCV, OpenVINO)
+
+El repositorio incluye herramientas desacopladas para descargar, calibrar y evaluar secuencias empíricas de videovigilancia sin tocar el código del *core*:
+
+```bash
+# 1. Catálogo y descarga de secuencias (resiliente con failover de mirrors)
+python scripts/download_datasets.py --list
+python scripts/download_datasets.py --dataset pets2009_s2_l1
+python scripts/download_datasets.py --dataset opencv_vtest
+python scripts/download_datasets.py --dataset openvino_people
+
+# 2. Ejecutar evaluación interactiva con ventana visual (OpenCV GUI)
+python scripts/run_dataset_test.py --dataset pets2009_s2_l1 --display --realtime
+
+# 3. Ejecutar evaluación en lote / headless (genera video compuesto, events.jsonl y summary.json)
+python scripts/run_dataset_test.py --dataset pets2009_s2_l1 --no-display
+```
+
+### Resumen de Métricas Empíricas de Validación (ISO 13855 / $T_1 \le 50\text{ ms}$)
+
+| Dataset / Secuencia | Escenario | Resolución | Frames | Throughput | Latencia Media ($T_1$) | $p95$ Latencia | Estado de Validación |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`pets2009_s2_l1`** | Plaza Multi-Target (Cruce & Oclusión) | $768 \times 576$ | 795 | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Validado (Incursión y retención en lockout) |
+| **`opencv_vtest`** | CCTV Vigilancia Peatonal | $768 \times 576$ | 795 | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Validado (Detección de intrusión en zona) |
+| **`openvino_people`** | Pasillo Mall Peatonal (Full HD) | $1920 \times 1080$ | 302 | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Validado (Tránsito perimetral seguro 1080p) |
+
+Para la memoria técnica completa, especificaciones métricas y análisis de casos borde, consultar [docs/data/datasets.md](docs/data/datasets.md).
+

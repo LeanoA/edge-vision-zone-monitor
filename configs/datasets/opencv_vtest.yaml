@@ -1,0 +1,40 @@
+camera:
+  id: "opencv_vtest"
+  resolution:
+    width: 768
+    height: 576
+  fps: 25
+
+calibration:
+  method: "DLT"
+  reprojection_tolerance_m: 0.05
+  points:
+    image:
+      - [100.0, 520.0]    # Point 1: bottom-left
+      - [680.0, 520.0]    # Point 2: bottom-right
+      - [520.0, 200.0]    # Point 3: top-right
+      - [240.0, 200.0]    # Point 4: top-left
+    world:
+      - [0.0, 0.0]        # Point 1: bottom-left (meters)
+      - [10.0, 0.0]       # Point 2: bottom-right
+      - [10.0, 15.0]      # Point 3: top-right
+      - [0.0, 15.0]       # Point 4: top-left
+
+zones:
+  name: "PedestrianGuardedZone"
+  danger_polygon:
+    - [2.0, 2.0]
+    - [8.0, 2.0]
+    - [8.0, 8.0]
+    - [2.0, 8.0]
+  warning_polygon:
+    - [1.0, 1.0]
+    - [9.0, 1.0]
+    - [9.0, 9.0]
+    - [1.0, 9.0]
+  hysteresis_buffer_m: 0.20
+  n_confirm: 3
+  n_release: 5
+  dwell_warning_s: 3.0
+  dwell_violation_s: 6.0
+  iso_k_speed: 1.6
