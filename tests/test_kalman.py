@@ -766,3 +766,124 @@ class TestTrackLifecycleAndMultiTargetTracker:
         # Average greedy association latency must be < 0.10 ms (100 microseconds)
         avg_latency_ms = (sum(times) / len(times)) * 1000.0
         assert avg_latency_ms < 0.10
+
+
+class TestMahalanobisGatingAndHungarianAssociation:
+    """Unit tests for Phase 2: Mahalanobis innovation gating, Hungarian assignment, and Spatial NMS."""
+
+    def test_filter_innovation_covariance_and_mahalanobis_distance(self):
+        """Verify innovation covariance calculation and Mahalanobis squared distance."""
+        kf = MetricKalmanFilter(
+            dt=0.0333,
+            initial_position=(2.0, 3.0),
+            r_pos=0.05,
+        )
+        # S = P[:2, :2] + R
+        S = kf.innovation_covariance()
+        assert S.shape == (2, 2)
+        np.testing.assert_allclose(S, np.diag([0.10, 0.10]))
+
+        # Exact point -> d_M^2 = 0
+        d2_zero = kf.mahalanobis_distance((2.0, 3.0))
+        assert d2_zero == pytest.approx(0.0, abs=1e-7)
+
+        # Offset (0.2, 0.0) -> y = [0.2, 0.0] -> y^T * S^-1 * y = 0.04 / 0.10 = 0.40
+        d2_offset = kf.mahalanobis_distance((2.2, 3.0))
+        assert d2_offset == pytest.approx(0.40, abs=1e-5)
+
+    def test_mahalanobis_chi2_gating_rejection(self):
+        """Verify detections with d_M^2 > 9.21 (chi2(2) 99% CI) are rejected and cause track to coast."""
+        tracker = MultiTargetKalmanTracker(
+            n_init=1,
+            r_pos=0.05,
+            mahalanobis_gate_chi2=9.210,
+        )
+        # Initialize Track 1 at (2.0, 2.0)
+        tracker.update([(2.0, 2.0)])
+        t = tracker.confirmed_tracks[0]
+
+        # S is ~ diag([0.10, 0.10]). A measurement with offset > sqrt(9.21 * 0.10) = sqrt(0.921) ~ 0.96m
+        # Let offset be (1.2, 0.0) -> d_M^2 = 1.44 / 0.10 = 14.4 > 9.21
+        tracks = tracker.update([(3.2, 2.0)])
+
+        # Track t must NOT match (3.2, 2.0) -> must coast
+        assert t.is_coasting()
+        assert t.missed_count == 1
+        # The distant detection spawns a new track
+        assert len(tracker.active_tracks) == 2
+
+    def test_hungarian_bipartite_crossing_trajectories(self):
+        """Verify Hungarian assignment correctly disambiguates crossing trajectories without ID swapping."""
+        tracker = MultiTargetKalmanTracker(
+            n_init=2,
+            r_pos=0.02,
+            dt=0.1,
+            mahalanobis_gate_chi2=9.210,
+        )
+        # Track 1: Starts at (1.0, 5.0) moving right (+1.0 m/s)
+        # Track 2: Starts at (5.0, 5.0) moving left (-1.0 m/s)
+        # 40 steps from t=0 to t=4.0s (crossing occurs at frame 20, X=3.0)
+        t1_x = 1.0
+        t2_x = 5.0
+        for frame in range(30):
+            t1_x = 1.0 + frame * 0.10  # 1.0 -> 3.9
+            t2_x = 5.0 - frame * 0.10  # 5.0 -> 2.1
+            tracker.update([(t1_x, 5.0), (t2_x, 5.0)])
+
+        confirmed = tracker.confirmed_tracks
+        assert len(confirmed) == 2
+        active = {t.track_id: t for t in confirmed}
+        # Track that started at 1.0 is Track 1; Track that started at 5.0 is Track 2
+        assert active[1].position[0] > 3.5
+        assert active[2].position[0] < 2.5
+
+    def test_world_space_spatial_birth_nms_suppression(self):
+        """Verify spatial birth NMS suppresses duplicate detections within 0.6m of an active track."""
+        tracker = MultiTargetKalmanTracker(
+            n_init=1,
+            birth_min_distance_m=0.6,
+        )
+        # Initialize track at (3.0, 3.0)
+        tracker.update([(3.0, 3.0)])
+        assert len(tracker.active_tracks) == 1
+        t_id = tracker.active_tracks[0].track_id
+
+        # Next frame: Detection 1 at (3.05, 3.0) [matches track], Detection 2 at (3.25, 3.0) [0.20m away - duplicate proposal]
+        tracker.update([(3.05, 3.0), (3.25, 3.0)])
+
+        # Detection 2 should be suppressed by spatial NMS (distance to active track is 0.20m < 0.6m)
+        assert len(tracker.active_tracks) == 1
+        assert tracker.active_tracks[0].track_id == t_id
+
+    def test_world_space_spatial_birth_nms_simultaneous_newborns(self):
+        """Verify spatial birth NMS deduplicates simultaneous close detections in an empty scene."""
+        tracker = MultiTargetKalmanTracker(
+            n_init=1,
+            birth_min_distance_m=0.6,
+        )
+        # Two simultaneous detections at (1.0, 1.0) and (1.2, 1.0) (distance 0.20m < 0.6m)
+        tracker.update([(1.0, 1.0), (1.2, 1.0)])
+
+        # Only 1 track should be created, second suppressed
+        assert len(tracker.active_tracks) == 1
+
+    def test_hungarian_association_latency(self):
+        """Verify Hungarian association latency is < 0.15 ms for 10 simultaneous targets."""
+        import time
+
+        tracker = MultiTargetKalmanTracker(n_init=1)
+        init_dets = [(float(i), float(i)) for i in range(10)]
+        tracker.update(init_dets)
+
+        track_positions = np.array([t.position for t in tracker.active_tracks])
+        next_dets = np.array([(float(i) + 0.02, float(i) + 0.02) for i in range(10)])
+
+        times = []
+        for _ in range(200):
+            t0 = time.perf_counter()
+            tracker.associate(track_positions, next_dets, active_tracks=tracker.active_tracks)
+            t1 = time.perf_counter()
+            times.append(t1 - t0)
+
+        avg_latency_ms = (sum(times) / len(times)) * 1000.0
+        assert avg_latency_ms < 0.15

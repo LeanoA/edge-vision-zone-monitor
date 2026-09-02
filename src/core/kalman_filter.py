@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Sequence, Tuple, Union
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 
 class AnchorSource(str, Enum):
@@ -254,6 +255,56 @@ class MetricKalmanFilter:
     def dt(self) -> float:
         """Return default time step in seconds."""
         return self._dt
+
+    def innovation_covariance(self, R: Optional[np.ndarray] = None) -> np.ndarray:
+        """
+        Return the 2x2 innovation covariance matrix S = H * P * H^T + R.
+
+        Args:
+            R: Optional custom 2x2 measurement noise matrix. Defaults to self._R.
+
+        Returns:
+            2x2 symmetric positive-definite covariance matrix S.
+        """
+        r_mat = self._R if R is None else np.asarray(R, dtype=np.float64)
+        return (self._P[:2, :2] + r_mat).copy()
+
+    def mahalanobis_distance(
+        self,
+        measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]],
+        R: Optional[np.ndarray] = None,
+    ) -> float:
+        """
+        Compute squared Mahalanobis distance d_M^2 = y^T * S^-1 * y.
+
+        Args:
+            measurement: Metric (X, Y) coordinates in meters.
+            R: Optional measurement noise matrix (2x2).
+
+        Returns:
+            Scalar squared Mahalanobis distance.
+        """
+        z = np.asarray(measurement, dtype=np.float64)
+        y0 = z[0] - self._x[0]
+        y1 = z[1] - self._x[1]
+
+        r_mat = self._R if R is None else np.asarray(R, dtype=np.float64)
+        s00 = self._P[0, 0] + r_mat[0, 0]
+        s01 = self._P[0, 1] + r_mat[0, 1]
+        s10 = self._P[1, 0] + r_mat[1, 0]
+        s11 = self._P[1, 1] + r_mat[1, 1]
+        det = s00 * s11 - s01 * s10
+        if abs(det) < 1e-12:
+            s_inv = np.linalg.pinv(np.array([[s00, s01], [s10, s11]], dtype=np.float64))
+        else:
+            inv_det = 1.0 / det
+            s_inv = np.array(
+                [[s11 * inv_det, -s01 * inv_det],
+                 [-s10 * inv_det, s00 * inv_det]],
+                dtype=np.float64,
+            )
+        d2 = y0 * (s_inv[0, 0] * y0 + s_inv[0, 1] * y1) + y1 * (s_inv[1, 0] * y0 + s_inv[1, 1] * y1)
+        return float(max(0.0, d2))
 
     def predict(self, dt: Optional[float] = None) -> np.ndarray:
         """
@@ -563,6 +614,18 @@ class Track:
             else:
                 self._state = TrackState.COASTING
 
+    def innovation_covariance(self, R: Optional[np.ndarray] = None) -> np.ndarray:
+        """Return the 2x2 innovation covariance matrix of this track."""
+        return self._filter.innovation_covariance(R)
+
+    def mahalanobis_distance(
+        self,
+        measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]],
+        R: Optional[np.ndarray] = None,
+    ) -> float:
+        """Return the squared Mahalanobis distance from this track to measurement."""
+        return self._filter.mahalanobis_distance(measurement, R)
+
     def is_confirmed(self) -> bool:
         """Return True if track is in CONFIRMED state."""
         return self._state == TrackState.CONFIRMED
@@ -578,8 +641,8 @@ class Track:
 
 class MultiTargetKalmanTracker:
     """
-    Manages multi-target tracking lifecycle, greedy spatial association,
-    and target track pools across continuous video frames.
+    Manages multi-target tracking lifecycle, Bayesian validation gating,
+    globally optimal Hungarian data association, and world-space spatial NMS.
     """
 
     __slots__ = (
@@ -590,6 +653,8 @@ class MultiTargetKalmanTracker:
         "_q_pos",
         "_q_vel",
         "_r_pos",
+        "_mahalanobis_gate_chi2",
+        "_birth_min_distance_m",
         "_next_id",
         "_tracks",
     )
@@ -603,18 +668,22 @@ class MultiTargetKalmanTracker:
         q_pos: float = 0.01,
         q_vel: float = 0.1,
         r_pos: float = 0.05,
+        mahalanobis_gate_chi2: float = 9.210,
+        birth_min_distance_m: float = 0.6,
     ) -> None:
         """
         Initialize multi-target tracker.
 
         Args:
             dt: Sampling period in seconds.
-            gating_threshold_m: Maximum Euclidean gating distance in meters.
+            gating_threshold_m: Maximum Euclidean gating distance in meters (fallback).
             max_missed: Maximum consecutive missed frames before track deletion.
             n_init: Consecutive detections required to confirm a tentative track.
             q_pos: Kalman position process noise variance.
             q_vel: Kalman velocity process noise variance.
             r_pos: Kalman measurement noise variance.
+            mahalanobis_gate_chi2: Chi-squared gating threshold for 2 DOF (default: 9.210 for 99% CI).
+            birth_min_distance_m: Minimum metric world-space distance to spawn a new track (Spatial NMS).
         """
         self._dt: float = float(dt)
         self._gating_threshold_m: float = float(gating_threshold_m)
@@ -623,6 +692,8 @@ class MultiTargetKalmanTracker:
         self._q_pos: float = float(q_pos)
         self._q_vel: float = float(q_vel)
         self._r_pos: float = float(r_pos)
+        self._mahalanobis_gate_chi2: float = float(mahalanobis_gate_chi2)
+        self._birth_min_distance_m: float = float(birth_min_distance_m)
 
         self._next_id: int = 1
         self._tracks: List[Track] = []
@@ -660,13 +731,17 @@ class MultiTargetKalmanTracker:
         self,
         track_positions: Union[np.ndarray, Sequence[Sequence[float]]],
         detections: Union[np.ndarray, Sequence[Sequence[float]]],
+        active_tracks: Optional[List[Track]] = None,
+        r_mat: Optional[np.ndarray] = None,
     ) -> Tuple[List[Tuple[int, int]], List[int], List[int]]:
         """
-        Perform greedy Euclidean distance association with gating.
+        Perform optimal bipartite data association with Mahalanobis validation gating.
 
         Args:
             track_positions: Array of shape (N, 2) with predicted track positions.
             detections: Array of shape (M, 2) with measurement positions.
+            active_tracks: Optional list of active Track objects for Mahalanobis covariance gating.
+            r_mat: Optional measurement noise matrix (2x2).
 
         Returns:
             Tuple of:
@@ -682,31 +757,57 @@ class MultiTargetKalmanTracker:
             unmatched_d = list(range(len(dets)))
             return [], unmatched_t, unmatched_d
 
-        diff = trks[:, np.newaxis, :] - dets[np.newaxis, :, :]
-        dist_matrix = np.hypot(diff[:, :, 0], diff[:, :, 1])
-
         num_tracks = len(trks)
         num_dets = len(dets)
-        gate = self._gating_threshold_m
+        gate_chi2 = self._mahalanobis_gate_chi2
 
-        pairs = []
-        for i in range(num_tracks):
-            for j in range(num_dets):
-                d = dist_matrix[i, j]
-                if d <= gate:
-                    pairs.append((d, i, j))
+        use_mahalanobis = active_tracks is not None and len(active_tracks) == num_tracks
 
-        pairs.sort(key=lambda item: item[0])
+        if use_mahalanobis:
+            assert active_tracks is not None
+            r_mat_2x2 = np.diag([self._r_pos, self._r_pos]) if r_mat is None else np.asarray(r_mat, dtype=np.float64)
+            s_inv_list = []
+            for track in active_tracks:
+                cov_p = track.filter.covariance[:2, :2]
+                s00 = cov_p[0, 0] + r_mat_2x2[0, 0]
+                s01 = cov_p[0, 1] + r_mat_2x2[0, 1]
+                s10 = cov_p[1, 0] + r_mat_2x2[1, 0]
+                s11 = cov_p[1, 1] + r_mat_2x2[1, 1]
+                det = s00 * s11 - s01 * s10
+                if abs(det) < 1e-12:
+                    inv = np.linalg.pinv(np.array([[s00, s01], [s10, s11]], dtype=np.float64))
+                else:
+                    inv_det = 1.0 / det
+                    inv = np.array(
+                        [[s11 * inv_det, -s01 * inv_det],
+                         [-s10 * inv_det, s00 * inv_det]],
+                        dtype=np.float64,
+                    )
+                s_inv_list.append(inv)
 
+            s_inv_arr = np.array(s_inv_list, dtype=np.float64)  # Shape (N, 2, 2)
+            y = dets[np.newaxis, :, :] - trks[:, np.newaxis, :]  # Shape (N, M, 2)
+            s_inv_y = np.einsum("nab,nmb->nma", s_inv_arr, y)
+            d2 = np.sum(y * s_inv_y, axis=-1)
+            cost_matrix = np.where(d2 <= gate_chi2, d2, 1e5)
+        else:
+            diff = trks[:, np.newaxis, :] - dets[np.newaxis, :, :]
+            dist_matrix = np.hypot(diff[:, :, 0], diff[:, :, 1])
+            gate_euclid = self._gating_threshold_m
+            cost_matrix = np.where(dist_matrix <= gate_euclid, dist_matrix, 1e5)
+
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+        matches = []
         matched_tracks = set()
         matched_dets = set()
-        matches = []
 
-        for d, i, j in pairs:
-            if i not in matched_tracks and j not in matched_dets:
-                matched_tracks.add(i)
-                matched_dets.add(j)
-                matches.append((i, j))
+        max_valid_cost = gate_chi2 if use_mahalanobis else self._gating_threshold_m
+        for r, c in zip(row_ind, col_ind):
+            if cost_matrix[r, c] <= max_valid_cost:
+                matches.append((int(r), int(c)))
+                matched_tracks.add(int(r))
+                matched_dets.add(int(c))
 
         unmatched_tracks = [i for i in range(num_tracks) if i not in matched_tracks]
         unmatched_dets = [j for j in range(num_dets) if j not in matched_dets]
@@ -770,11 +871,21 @@ class MultiTargetKalmanTracker:
         )
 
         if len(active) == 0:
-            # Spawn tracks for all incoming detections
+            # Spawn tracks for incoming detections with World-Space Spatial Birth NMS
+            newborn_positions: List[Tuple[float, float]] = []
             for j in range(num_dets):
+                det_pos = parsed_coords[j]
+                min_dist_to_newborn = min(
+                    (np.hypot(det_pos[0] - np_pos[0], det_pos[1] - np_pos[1]) for np_pos in newborn_positions),
+                    default=float("inf"),
+                )
+                if min_dist_to_newborn < self._birth_min_distance_m:
+                    continue
+
+                newborn_positions.append(det_pos)
                 new_track = Track(
                     track_id=self._next_id,
-                    initial_position=parsed_coords[j],
+                    initial_position=det_pos,
                     dt=self._dt,
                     q_pos=self._q_pos,
                     q_vel=self._q_vel,
@@ -798,7 +909,7 @@ class MultiTargetKalmanTracker:
         # Pairwise distance matrix between active tracks and detections
         track_positions = np.array([t.position for t in active], dtype=np.float64)
         matches, unmatched_track_indices, unmatched_det_indices = self.associate(
-            track_positions, det_arr
+            track_positions, det_arr, active_tracks=active
         )
 
         source_scale_map = {
@@ -825,11 +936,31 @@ class MultiTargetKalmanTracker:
         for track_idx in unmatched_track_indices:
             active[track_idx].mark_missed()
 
-        # Unmatched detections spawn new tentative tracks
+        # Unmatched detections spawn new tentative tracks (with World-Space Spatial Birth NMS)
+        newborn_positions = []
         for det_idx in unmatched_det_indices:
+            det_pos = parsed_coords[det_idx]
+
+            # Spatial NMS check against active tracks
+            min_dist_to_active = min(
+                (np.hypot(det_pos[0] - t.position[0], det_pos[1] - t.position[1]) for t in active),
+                default=float("inf"),
+            )
+            if min_dist_to_active < self._birth_min_distance_m:
+                continue
+
+            # Spatial NMS check against other newborn tracks in current frame
+            min_dist_to_newborn = min(
+                (np.hypot(det_pos[0] - np_pos[0], det_pos[1] - np_pos[1]) for np_pos in newborn_positions),
+                default=float("inf"),
+            )
+            if min_dist_to_newborn < self._birth_min_distance_m:
+                continue
+
+            newborn_positions.append(det_pos)
             new_track = Track(
                 track_id=self._next_id,
-                initial_position=parsed_coords[det_idx],
+                initial_position=det_pos,
                 dt=self._dt,
                 q_pos=self._q_pos,
                 q_vel=self._q_vel,
