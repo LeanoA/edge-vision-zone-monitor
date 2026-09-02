@@ -98,3 +98,26 @@ Evaluación estadística cuantitativa ejecutada sobre 100 iteraciones cronometra
 3. **Aceleración por Hardware Dedicado (NPU vs GPU):**
    * `ONNX Runtime + CoreMLExecutionProvider` alcanza la menor latencia ($15.81\text{ ms}$, **$4.48\times$ más veloz**) y el mayor throughput ($63.3\text{ FPS}$).
    * **Ventaja de Particionado:** CoreML compila 346 de los 354 nodos de la red directamente en el **Apple Neural Engine (ANE)**, liberando los núcleos de CPU y GPU para ejecutar en paralelo la proyección homográfica, el Filtro de Kalman y el autómata Statecharts sin competencia de recursos.
+
+---
+
+### Ensayo 2: Precisión Geométrica vs Cuantización (FP32 vs FP16 vs INT8) — ✅ EJECUTADO
+
+Evaluación cuantitativa de compresión, latencia y distorsión geométrica en el plano del suelo ($Z_w = 0$) proyectada a través de la matriz de homografía $H$:
+
+| Modo de Precisión | Peso de Modelo | Reducción de Tamaño | Latencia Media | Throughput | Error en Píxeles ($RMSE_{\text{px}}$) | Error Métrico en Suelo ($RMSE_{XY}$) | Desvío Máximo ($E_{\max}$) | Tolerancia ISO 13855 ($RMSE \le 15\text{cm}$) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **FP32 (Single Precision)** | $11.30\text{ MB}$ | $0.0\%$ (Base) | **$13.85\text{ ms}$** | **$72.2\text{ FPS}$** | $0.00\text{ px}$ | **$0.00\text{ cm}$** | $0.00\text{ cm}$ | ✅ **PASS** (Gold Standard) |
+| **FP16 (Half Precision)** | $5.69\text{ MB}$ | $49.6\%$ | $42.49\text{ ms}$ | $23.5\text{ FPS}$ | **$0.45\text{ px}$** | **$2.15\text{ cm}$** | $43.45\text{ cm}$ | ✅ **PASS** (Geométricamente Seguro) |
+| **INT8 (Dynamic Quant)** | **$3.27\text{ MB}$** | **$71.1\%$** | $97.50\text{ ms}$ | $10.3\text{ FPS}$ | $34.82\text{ px}$ | **$275.12\text{ cm}$** | $> 3000\text{ cm}$ | ❌ **FAIL** (Inviable en Safety) |
+
+#### Discusión y Hallazgos de Ingeniería:
+1. **La Lupa No-Lineal de la Homografía:**
+   * Un error en apariencia "pequeño" de $34.8\text{ px}$ en el espacio de imagen se convierte en un **error catastrófico de $2.75\text{ metros}$ en el plano métrico de la fábrica**.
+   * En visión perspectiva, la compresión de profundidad en el campo lejano ($Y_w > 12\text{m}$) magnifica el error de píxeles por un factor de hasta $50\times$. Por eso, evaluar cuantización solo con métricas mAP o IoU 2D es un error grave en aplicaciones de seguridad física.
+2. **La Trampa de la Cuantización Dinámica en Aceleradores Edge:**
+   * La cuantización dinámica ingenua (`quantize_dynamic`) inserta operadores intercalados de cuantización/descuantización en tiempo de ejecución. Esto **fragmentó el grafo compilado de CoreML de 5 particiones a 67 particiones**, destruyendo la fusión de capas en el Neural Engine y ralentizando la inferencia ($97.5\text{ ms}$) en lugar de acelerarla.
+3. **Veredicto Arquitectónico:**
+   * **FP32 es la opción óptima absoluta** en Apple Silicon: ofrece la mayor velocidad ($13.85\text{ ms}$ / $72.2\text{ FPS}$) porque se compila de manera monolítica y directa en el ANE con **cero distorsión espacial**.
+   * **FP16** es viable para reducir un $50\%$ de memoria flash si se requiere en microcontroladores, manteniendo el error métrico en apenas $2.15\text{ cm}$.
+   * **INT8** solo debe aplicarse mediante *Quantization-Aware Training (QAT)* o calibración estática post-entrenamiento (PTQ con tabla de calibración representativa de planta), nunca con cuantización dinámica pura.
