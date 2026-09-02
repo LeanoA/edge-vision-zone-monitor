@@ -171,10 +171,12 @@ class DemoRunner:
         )
 
         # 3. Instantiate Dual Visualizer
+        # Only bypass rendering if both display and video recording are disabled
+        is_headless = self.config.no_display and (self.config.output_video is None)
         self.visualizer = DualVisualizer(
             homography=homography,
             fsm=fsm,
-            headless=self.config.no_display,
+            headless=is_headless,
         )
 
         # 4. Initialize Telemetry Event File

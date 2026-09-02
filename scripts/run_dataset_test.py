@@ -169,7 +169,7 @@ class DatasetTestRunner:
         self.visualizer = DualVisualizer(
             homography=homography,
             fsm=fsm,
-            headless=self.config.no_display,
+            headless=False,
         )
 
         self.events_file = open(self.events_output_path, "w", encoding="utf-8")
