@@ -1,6 +1,7 @@
 """
 tests/test_synthetic_generator.py
-Unit tests for the SyntheticVideoGenerator utility.
+Comprehensive unit and integration tests for the SyntheticVideoGenerator utility.
+Verifies sprite loading, perspective scaling, alpha blending, occlusion, and YOLO detection compatibility.
 """
 
 from pathlib import Path
@@ -12,12 +13,13 @@ from src.utils.synthetic_generator import SyntheticVideoGenerator
 
 
 def test_generator_initialization(tmp_path: Path):
-    """SyntheticVideoGenerator initializes properly with default or fallback homography."""
+    """SyntheticVideoGenerator initializes properly with default or fallback homography and loads sprites."""
     gen = SyntheticVideoGenerator(config_path=None, width=1280, height=720, fps=25)
     assert gen.width == 1280
     assert gen.height == 720
     assert gen.fps == 25
     assert gen.homography.is_calibrated
+    assert len(gen.walk_sprites) > 0 or gen.idle_sprite is not None
 
 
 def test_render_base_scene():
@@ -27,6 +29,32 @@ def test_render_base_scene():
     assert isinstance(frame, np.ndarray)
     assert frame.shape == (480, 640, 3)
     assert frame.dtype == np.uint8
+
+
+def test_render_worker_sprite():
+    """render_worker_sprite composites sprite onto frame without clipping errors."""
+    gen = SyntheticVideoGenerator(config_path=None, width=1920, height=1080, fps=30)
+    frame = gen.render_base_scene()
+    orig_sum = np.sum(frame)
+
+    # Render worker at (2.0m, 3.0m)
+    gen.render_worker_sprite(frame, world_x=2.0, world_y=3.0, gait_phase=1.0, is_idle=False)
+    new_sum = np.sum(frame)
+
+    assert new_sum != orig_sum
+    assert frame.shape == (1080, 1920, 3)
+
+
+def test_pinhole_pixel_scale():
+    """Pixel height scaling decreases monotonically with ground distance Y."""
+    gen = SyntheticVideoGenerator(config_path=None, width=1920, height=1080, fps=30)
+    h_near = gen._get_pixel_scale(0.5)
+    h_mid = gen._get_pixel_scale(3.0)
+    h_far = gen._get_pixel_scale(5.5)
+
+    assert h_near > h_mid > h_far
+    assert h_near >= 400
+    assert h_far >= 200
 
 
 def test_generate_sequence_a(tmp_path: Path):
@@ -70,3 +98,22 @@ def test_generate_all_sequences(tmp_path: Path):
     assert len(generated) == 3
     for p in generated:
         assert p.exists()
+
+
+def test_yolo_detection_on_synthetic_frame():
+    """Verify that YOLO11 pose / detection recognizes synthetic composite worker with confidence >= 0.50."""
+    model_path = Path("yolo11n-pose.pt")
+    if not model_path.is_file():
+        pytest.skip("yolo11n-pose.pt weights not found locally")
+
+    from ultralytics import YOLO
+
+    model = YOLO(str(model_path))
+    gen = SyntheticVideoGenerator(config_path="configs/default_config.yaml", width=1920, height=1080)
+    frame = gen.render_base_scene()
+    gen.render_worker_sprite(frame, world_x=2.0, world_y=2.5, gait_phase=0.0, is_idle=False)
+
+    results = model(frame, verbose=False)[0]
+    assert len(results.boxes) >= 1
+    top_conf = float(results.boxes.conf[0])
+    assert top_conf >= 0.50

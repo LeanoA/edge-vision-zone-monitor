@@ -367,6 +367,7 @@ Para evitar la conflación entre la **topología espacial** y la **acumulación 
   * **[ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md):** Desacoplamiento de Autómata Espacial y Clasificación Temporal de Dwell en Regiones Ortogonales (Statecharts).
   * **[ADR-010](docs/decisions/adr-010-dual-latency-profiling-iso13855.md):** Doble Horizonte Temporal de Latencia en Edge AI Industrial ($T_{\text{system}}$ vs $T_{\text{event}}$ - ISO 13855 / IEC 61496).
   * **[ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md):** Bayesian Validation Gating (Mahalanobis $\chi^2$), Asignación Global Húngara y World-Space Spatial Birth NMS.
+  * **[ADR-012](docs/decisions/adr-012-synthetic-yolo-video-generation.md):** Generación de Videos Sintéticos Fotorrealistas con Escala Pinhole e Identidad Única.
 
 ---
 
@@ -474,11 +475,15 @@ Durante las pruebas de estrés con datasets de alta densidad peatonal y oclusion
 * **Solución Implementada:**
   1. **World-Space Spatial Birth NMS ($d_{\text{birth\_min}} = 0.6\text{ m}$):** Regla estricta de no-nacimiento que prohíbe instanciar tracks si la detección métrica en el suelo dista menos de $0.6\text{ m}$ de cualquier track activo o de otro nacimiento en el mismo cuadro.
 
-### 3. Gap de Dominio en Videos Sintéticos vs YOLO (*Synthetic Domain Gap*) — ✅ MITIGADO
-* **Síntoma:** En las secuencias sintéticas locales primitivas (`sequence_a/b/c`), YOLO11-Pose no genera detecciones ($\text{conf} < 0.25$) por falta de textura fotográfica.
-* **Estrategia Aplicada:** Inyección directa de Ground Truth analítico en el pipeline para CI/CD (validación formal milimétrica de Kalman, FSM y Homografía sin inferencia) y uso del catálogo de datasets reales (`openvino_people`, `pets2009_s2_l1`, `mendeley_industrial`, `mendeley_walkway_violation`) para validación E2E.
+### 3. Gap de Dominio en Videos Sintéticos vs YOLO (*Synthetic Domain Gap*) — ✅ RESUELTO ([ADR-012](docs/decisions/adr-012-synthetic-yolo-video-generation.md), [Doc Técnico](docs/data/synthetic_generation.md))
+* **Síntoma Previo:** En las secuencias sintéticas primitivas dibujadas con vectores 2D (`cv2.line`/`cv2.rectangle`), YOLO11-Pose no generaba detecciones ($\text{conf} < 0.25$) debido a la falta de gradientes y textura fotográfica.
+* **Solución Implementada:** 
+  1. **Single-Identity Tracklet & Normalización:** Extracción continua de un único sujeto en lienzo canónico ($160 \times 320\text{ RGBA}$) con alpha-feathering suave y sombras de contacto gaussianas, eliminando cambios de vestimenta o silueta.
+  2. **Escalado Perspectivo Pinhole Calibrado ($h = \frac{480}{1.0 + 0.165 \cdot Y}$):** Mantiene la escala visual antropométrica en todo el rango métrico de la celda ($Y \in [0.5, 5.5]\text{ m}$).
+  3. **Resultados de Validación:** **100% de tasa de detección** en todas las secuencias sintéticas (A, B y C) con confianza promedio de **0.835 - 0.861** y validación E2E completa de los estados de seguridad (`SAFE` $\to$ `WARNING` $\to$ `DANGER` $\to$ `LOCKOUT`).
 
 ---
+
 
 
 

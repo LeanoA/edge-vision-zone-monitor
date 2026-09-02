@@ -2,6 +2,7 @@
 """
 scripts/generate_samples.py
 CLI Script to generate deterministic synthetic benchmark videos for industrial safety pipeline testing.
+Uses perspective-scaled RGBA worker sprites compatible with YOLO models.
 """
 
 import argparse
@@ -35,6 +36,12 @@ def parse_args() -> argparse.Namespace:
         help="Path to calibration YAML configuration file.",
     )
     parser.add_argument(
+        "--sprite-dir",
+        type=Path,
+        default=Path("data/assets/sprites/worker"),
+        help="Directory containing RGBA worker walking cycle sprites.",
+    )
+    parser.add_argument(
         "--sequence",
         type=str,
         choices=["all", "a", "b", "c"],
@@ -60,12 +67,14 @@ def main() -> None:
     print("=" * 70)
     print(f"Output Directory : {args.output_dir.resolve()}")
     print(f"Calibration File : {args.config.resolve()}")
+    print(f"Sprite Directory : {args.sprite_dir.resolve()}")
     print(f"FPS              : {args.fps}")
     print(f"Sequence Mode    : {args.sequence.upper()}")
     print("-" * 70)
 
     generator = SyntheticVideoGenerator(
         config_path=args.config if args.config.exists() else None,
+        sprite_dir=args.sprite_dir if args.sprite_dir.exists() else None,
         fps=args.fps,
     )
 

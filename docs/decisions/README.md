@@ -28,3 +28,5 @@ Cada documento debe seguir el formato estándar:
 | [ADR-009](adr-009-decoupled-spatial-dwell-statecharts.md) | Desacoplamiento de Autómata Espacial y Clasificación Temporal de Dwell en Regiones Ortogonales | Aceptado | 2026-08-31 |
 | [ADR-010](adr-010-dual-latency-profiling-iso13855.md) | Doble Horizonte Temporal de Latencia en Edge AI Industrial (ISO 13855 / IEC 61496) | Aceptado | 2026-08-31 |
 | [ADR-011](adr-011-mahalanobis-hungarian-mot.md) | Bayesian Validation Gating (Mahalanobis $\chi^2$), Asignación Global Húngara y Spatial Birth NMS | Aceptado | 2026-09-01 |
+| [ADR-012](adr-012-synthetic-yolo-video-generation.md) | Generación de Videos Sintéticos Fotorrealistas con Escala Pinhole e Identidad Única | Aceptado | 2026-09-02 |
+
