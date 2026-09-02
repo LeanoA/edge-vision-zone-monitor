@@ -303,6 +303,7 @@ class SafetyPipeline:
         fsm: "SpatialFSM",
         conf_threshold: float = 0.5,
         min_ankle_bbox_height: float = 0.0,
+        target_size: Optional[Tuple[int, int]] = None,
     ) -> None:
         self.engine = engine
         self.homography = homography
@@ -311,6 +312,22 @@ class SafetyPipeline:
         self.conf_threshold = float(conf_threshold)
         self.min_ankle_bbox_height = float(min_ankle_bbox_height)
         self._frame_id = 0
+
+        if target_size is not None:
+            self.target_size = target_size
+        else:
+            engine_shape = getattr(self.engine, "input_shape", None)
+            if (
+                engine_shape
+                and len(engine_shape) == 4
+                and isinstance(engine_shape[2], int)
+                and isinstance(engine_shape[3], int)
+                and engine_shape[2] > 0
+                and engine_shape[3] > 0
+            ):
+                self.target_size = (int(engine_shape[3]), int(engine_shape[2]))
+            else:
+                self.target_size = (640, 640)
 
     def parse_detections(
         self,
@@ -429,7 +446,7 @@ class SafetyPipeline:
 
             # Stage 1: Preprocess (Letterbox)
             t0 = time.perf_counter()
-            tensor, scale, pad_x, pad_y = letterbox_image(frame, target_size=(640, 640))
+            tensor, scale, pad_x, pad_y = letterbox_image(frame, target_size=self.target_size)
             t_preprocess = (time.perf_counter() - t0) * 1000.0
 
             # Stage 2: Inference

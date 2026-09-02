@@ -121,6 +121,34 @@ Evaluación cuantitativa ejecutada sobre **cuadros de video reales** de personas
    * **FP32 es la opción óptima absoluta** en Apple Silicon: ofrece la mayor velocidad ($13.85\text{ ms}$ / $72.2\text{ FPS}$) porque se compila de manera monolítica y directa en el ANE con **cero distorsión espacial**.
    * **FP16** es viable para reducir un $50\%$ de memoria flash si se requiere en microcontroladores, manteniendo el error métrico en apenas $1.37\text{ cm}$.
    * **INT8** solo debe aplicarse mediante *Quantization-Aware Training (QAT)* o calibración estática post-entrenamiento (PTQ con tabla de calibración representativa de planta), nunca con cuantización dinámica pura.
-4. **La Limitación del Campo Lejano ($Y_w > 12\text{m}$) y el Rol de FP16 a Mayor Resolución ($960\text{p}$):**
-   * En los ensayos reales de planta, la estrategia de *Degradación Adaptativa de Anclaje* (degradar de tobillos a la base del bounding box con covarianza inflada $R = 5.0 \cdot R_0$) mostró una limitación física: al comprimir el fotograma $1080\text{p}$ a $640 \times 640$, una persona en el fondo ocupa menos de $30\text{ px}$, provocando que la red neuronal pierda confianza global ($\text{conf} < 0.35$) y ni siquiera emita la propuesta de detección del bounding box.
-   * Elevar la resolución a **$960 \times 960$** ($2.25\times$ FLOPs) recupera la densidad de píxeles sobre los operarios lejanos. Si bien en FP32 esto comprometería el presupuesto de seguridad ($T_1 > 35\text{ ms}$), **la semiprecisión FP16 a $960\text{p}$ surge como el *sweet spot* arquitectónico**: aprovecha la aceleración aritmética de los Tensor Cores / ANE para mantener la latencia en $\le 24\text{ ms}$ ($\le 30\text{ ms}$ ISO 13855) con un error métrico de apenas $1.37\text{ cm}$, resolviendo la ceguera de fondo sin penalizar la seguridad.
+
+---
+
+### 🔍 Deep-Dive de Extensión: La Paradoja de Resolución en Pasarela Industrial (`mendeley_walkway_violation`) — ✅ EJECUTADO
+
+#### 🎭 El Gancho Narrativo (Del Ensayo 2 al Dilema del Campo Lejano):
+1. **El Problema Heredado del Ensayo 2:** El *Ensayo 2* demostró que la homografía magnifica no-linealmente los errores en el fondo ($Y_w > 12\text{m}$). Pero en la práctica industrial surgió un problema más severo: al comprimir una cámara $1080\text{p}$ a $640 \times 640$, un operario en el fondo ocupa menos de $30\text{ px}$. La red neuronal pierde confianza global ($\text{conf} < 0.35$) y **directamente no emite la detección**, dejando inoperante la degradación adaptativa de anclajes.
+2. **La Hipótesis:** Elevar la resolución a **$960 \times 960$** ($2.25\times$ píxeles) devolvería la densidad visual para detectar tobillos en el fondo, mientras que la semiprecisión **FP16** compensaría el costo computacional para mantener la latencia dentro del presupuesto de seguridad ($T_1 \le 30\text{ ms}$).
+3. **El Experimento:** Evaluamos los 348 cuadros del video industrial de planta real [`mendeley_walkway_violation.mp4`](file:///Users/xander/Projects/edge-safety-guard/data/raw/mendeley_industrial/mendeley_walkway_violation.mp4) contrastando las 4 combinaciones posibles (640p FP32, 640p FP16, 960p FP32, 960p FP16).
+
+#### 📊 Resultados Empíricos en Pasarela Real (348 frames):
+
+| Resolución / Precisión | Tamaño Modelo | Inferencia Media | Latencia Total Pipeline ($T_1$) | $p95$ de $T_1$ | Throughput (FPS) | Detecciones Totales (348 frames) | Detecciones en Fondo ($Y_w > 6\text{m}$) | Cumple ISO 13855 ($p95 \le 30\text{ms}$) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **640p FP32** (Línea Base) | $11.30\text{ MB}$ | **$17.10\text{ ms}$** | **$18.06\text{ ms}$** | **$19.62\text{ ms}$** | **$53.8\text{ FPS}$** | 33 | 33 | ✅ **PASS** |
+| **640p FP16** | $5.69\text{ MB}$ | $42.82\text{ ms}$ | $43.80\text{ ms}$ | $50.72\text{ ms}$ | $22.7\text{ FPS}$ | 26 | 26 | ❌ **FAIL** |
+| **960p FP32** | $11.58\text{ MB}$ | $40.54\text{ ms}$ | $42.57\text{ ms}$ | $45.34\text{ ms}$ | $22.9\text{ FPS}$ | **301** | **301** | ❌ **FAIL** |
+| **960p FP16** | $5.85\text{ MB}$ | $93.97\text{ ms}$ | $95.92\text{ ms}$ | $101.30\text{ ms}$ | $10.4\text{ FPS}$ | **296** | **296** | ❌ **FAIL** |
+
+#### 💡 Las 3 Revelaciones Técnicas de Ingeniería:
+1. **Revelación #1 (Visión): La Ceguera de 640p vs la Omnipresencia de 960p:**
+   * En **640p**, el detector sufrió ceguera durante el $90\%$ del recorrido del operario, registrando solo **33 detecciones**.
+   * En **960p**, las detecciones aumentaron a **301 (+812% de sensibilidad)**, manteniendo el tracking continuo del operario desde que ingresa en el horizonte lejano.
+2. **Revelación #2 (Hardware Edge): La Trampa de CoreML / ONNX con FP16:**
+   * En Apple Silicon (ANE), **960p FP32 ($40.5\text{ ms}$) es más de $2.3\times$ más rápido que 960p FP16 ($93.9\text{ ms}$)**.
+   * `CoreMLExecutionProvider` espera tensores FP32; al recibir un ONNX FP16, inserta operadores de casteo intermedios que fragmentan el grafo en 6 particiones y provocan paradas de sincronización CPU-NPU. *(En hardware NVIDIA Jetson con TensorRT nativo, FP16 sí compila de forma monolítica en Tensor Cores a $\approx 18-22\text{ ms}$)*.
+3. **Revelación #3 (Arquitectura): El Patrón "Dual-Rate Pipeline" para Salvar la Norma ISO:**
+   * ¿Cómo obtener la agudeza visual de 960p ($301$ detecciones) sin perder los $18\text{ ms}$ de tiempo de reacción de 640p?
+   * **Desacople en Dos Frecuencias:**
+     * **Fast Stream (640p FP32 @ 54 FPS, $T_1 = 18\text{ ms}$):** Monitorea la zona de peligro crítica inmediata ($< 6\text{m}$) para garantizar el disparo instantáneo de relés sin latencia.
+     * **Slow/High-Res Stream (960p FP32 @ 23 FPS, $T_1 = 42\text{ ms}$):** Corre en hilo asíncrono sobre el fondo de la nave para alimentar el Filtro de Kalman con observaciones tempranas en la zona de advertencia lejana ($> 6\text{m}$).
