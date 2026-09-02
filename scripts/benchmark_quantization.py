@@ -333,11 +333,43 @@ def main() -> None:
     print(f"Iterations : {args.iterations} (Warmup: {args.warmup})")
     print("-" * 80)
 
+    # Extract real frames from dataset video
+    sample_frames = []
+    video_sources = [
+        "data/raw/openvino_people/people.mp4",
+        "data/raw/pets2009_s2_l1/pets2009_s2_l1.mp4",
+    ]
+    for v_src in video_sources:
+        p = Path(v_src)
+        if p.is_file():
+            cap = cv2.VideoCapture(str(p))
+            count = 0
+            while cap.isOpened() and count < 10:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                # Letterbox to (1, 3, 640, 640) float32
+                h, w = frame.shape[:2]
+                scale = min(640 / w, 640 / h)
+                nw, nh = int(round(w * scale)), int(round(h * scale))
+                resized = cv2.resize(frame, (nw, nh))
+                padded = np.full((640, 640, 3), 114, dtype=np.uint8)
+                padded[(640 - nh) // 2 : (640 - nh) // 2 + nh, (640 - nw) // 2 : (640 - nw) // 2 + nw] = resized
+                rgb = cv2.cvtColor(padded, cv2.COLOR_BGR2RGB)
+                chw = np.transpose(rgb, (2, 0, 1)).astype(np.float32) / 255.0
+                sample_frames.append(chw)
+                count += 1
+            cap.release()
+            if sample_frames:
+                logger.info("Loaded %d real video frames from '%s' for precision evaluation.", len(sample_frames), v_src)
+                break
+
     summary = run_quantization_precision_benchmark(
         fp32_model_path=args.fp32_model,
         fp16_model_path=args.fp16_model,
         int8_model_path=args.int8_model,
         homography_config_path=args.config,
+        sample_images=sample_frames if sample_frames else None,
         iterations=args.iterations,
         warmup=args.warmup,
     )

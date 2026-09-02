@@ -103,13 +103,13 @@ Evaluación estadística cuantitativa ejecutada sobre 100 iteraciones cronometra
 
 ### Ensayo 2: Precisión Geométrica vs Cuantización (FP32 vs FP16 vs INT8) — ✅ EJECUTADO
 
-Evaluación cuantitativa de compresión, latencia y distorsión geométrica en el plano del suelo ($Z_w = 0$) proyectada a través de la matriz de homografía $H$:
+Evaluación cuantitativa ejecutada sobre **cuadros de video reales** de personas caminando (`openvino_people`), midiendo latencia, compresión y distorsión espacial métrica proyectada por la matriz de homografía $H$:
 
 | Modo de Precisión | Peso de Modelo | Reducción de Tamaño | Latencia Media | Throughput | Error en Píxeles ($RMSE_{\text{px}}$) | Error Métrico en Suelo ($RMSE_{XY}$) | Desvío Máximo ($E_{\max}$) | Tolerancia ISO 13855 ($RMSE \le 15\text{cm}$) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **FP32 (Single Precision)** | $11.30\text{ MB}$ | $0.0\%$ (Base) | **$13.85\text{ ms}$** | **$72.2\text{ FPS}$** | $0.00\text{ px}$ | **$0.00\text{ cm}$** | $0.00\text{ cm}$ | ✅ **PASS** (Gold Standard) |
-| **FP16 (Half Precision)** | $5.69\text{ MB}$ | $49.6\%$ | $42.49\text{ ms}$ | $23.5\text{ FPS}$ | **$0.45\text{ px}$** | **$2.15\text{ cm}$** | $43.45\text{ cm}$ | ✅ **PASS** (Geométricamente Seguro) |
-| **INT8 (Dynamic Quant)** | **$3.27\text{ MB}$** | **$71.1\%$** | $97.50\text{ ms}$ | $10.3\text{ FPS}$ | $34.82\text{ px}$ | **$275.12\text{ cm}$** | $> 3000\text{ cm}$ | ❌ **FAIL** (Inviable en Safety) |
+| **FP32 (Single Precision)** | $11.30\text{ MB}$ | $0.0\%$ (Base) | **$17.68\text{ ms}$** | **$56.6\text{ FPS}$** | $0.00\text{ px}$ | **$0.00\text{ cm}$** | $0.00\text{ cm}$ | ✅ **PASS** (Gold Standard) |
+| **FP16 (Half Precision)** | $5.69\text{ MB}$ | $49.6\%$ | $42.40\text{ ms}$ | $23.6\text{ FPS}$ | **$0.31\text{ px}$** | **$1.37\text{ cm}$** | $34.88\text{ cm}$ | ✅ **PASS** (Geométricamente Seguro) |
+| **INT8 (Dynamic Quant)** | **$3.27\text{ MB}$** | **$71.1\%$** | $97.85\text{ ms}$ | $10.2\text{ FPS}$ | $23.84\text{ px}$ | **$156.70\text{ cm}$** | $> 2000\text{ cm}$ | ❌ **FAIL** (Inviable en Safety) |
 
 #### Discusión y Hallazgos de Ingeniería:
 1. **La Lupa No-Lineal de la Homografía:**
