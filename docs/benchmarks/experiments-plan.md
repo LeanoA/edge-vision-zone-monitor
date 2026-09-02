@@ -74,3 +74,27 @@ Este documento registra formalmente la serie de 4 ensayos experimentales diseña
   * Tiempo físico de disparo $T_{\text{event}}$ ($\text{ms}$).
   * Distancia de penetración antes del disparo $D_{\text{penetration}}$ ($\text{cm}$).
   * Cumplimiento estricto de la ecuación de distancia mínima $S = (K \times T) + C$.
+
+---
+
+## 📊 Resultados Experimentales y Discusión Técnica
+
+### Ensayo 1: Runtime Engine Showdown (YOLO11-Pose en Apple Silicon) — ✅ EJECUTADO
+
+Evaluación estadística cuantitativa ejecutada sobre 100 iteraciones cronometradas por motor con 20 iteraciones de calentamiento (*warmup*):
+
+| Motor de Inferencia | Backend / Hardware | Latencia Media | Mediana ($p50$) | $p95$ Crítico | $p99$ Extremo | Jitter Temporal ($\sigma$) | Throughput | Aceleración vs CPU | Cumple ISO 13855 ($p95 \le 30\text{ms}$) |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **PyTorch Eager (CPU)** | `PyTorch_CPU` | $70.80\text{ ms}$ | $69.86\text{ ms}$ | $75.11\text{ ms}$ | $75.91\text{ ms}$ | $\pm 1.96\text{ ms}$ | $14.1\text{ FPS}$ | $1.00\times$ (Base) | ❌ **FAIL** (Inviable en safety) |
+| **ONNX Runtime (CPU)** | `CPUExecutionProvider` | $40.54\text{ ms}$ | $39.92\text{ ms}$ | $44.72\text{ ms}$ | $48.18\text{ ms}$ | $\pm 2.04\text{ ms}$ | $24.7\text{ FPS}$ | **$1.75\times$** | ❌ **FAIL** ($> 30\text{ ms}$) |
+| **PyTorch Eager (MPS GPU)** | `PyTorch_MPS` | $17.63\text{ ms}$ | $17.00\text{ ms}$ | $20.82\text{ ms}$ | $22.75\text{ ms}$ | $\pm 1.67\text{ ms}$ | $56.7\text{ FPS}$ | **$4.02\times$** | ✅ **PASS** |
+| **ONNX Runtime (CoreML)** | `CoreMLExecutionProvider` | **$15.81\text{ ms}$** | **$15.88\text{ ms}$** | **$19.02\text{ ms}$** | **$20.88\text{ ms}$** | **$\pm 1.79\text{ ms}$** | **$63.3\text{ FPS}$** | **$4.48\times$** | ✅ **PASS** (Óptimo) |
+
+#### Discusión y Hallazgos de Ingeniería:
+1. **La Trampa de PyTorch en CPU:**
+   * Con $70.80\text{ ms}$ por inferencia, el modo intérprete de PyTorch en CPU **consume por sí solo más del 140% del presupuesto total de seguridad industrial** ($T_1 \le 50\text{ ms}$ según ISO 13855 / IEC 61496), dejando cero margen para tracking, homografía y actuación electromecánica de relés.
+2. **Impacto de la Compilación a Grafo Estático:**
+   * La simple exportación a ONNX Runtime sobre CPU reduce la latencia de $70.80\text{ ms} \to 40.54\text{ ms}$ (**$1.75\times$ más rápido**) debido a la optimización de grafos (*constant folding*, fusión de capas Conv+BatchNorm y eliminación de overhead del runtime de Python).
+3. **Aceleración por Hardware Dedicado (NPU vs GPU):**
+   * `ONNX Runtime + CoreMLExecutionProvider` alcanza la menor latencia ($15.81\text{ ms}$, **$4.48\times$ más veloz**) y el mayor throughput ($63.3\text{ FPS}$).
+   * **Ventaja de Particionado:** CoreML compila 346 de los 354 nodos de la red directamente en el **Apple Neural Engine (ANE)**, liberando los núcleos de CPU y GPU para ejecutar en paralelo la proyección homográfica, el Filtro de Kalman y el autómata Statecharts sin competencia de recursos.
