@@ -165,12 +165,12 @@ Durante la integración y evaluación de estos datasets, se identificaron y reso
 
 ---
 
-### 3.4 Hallazgo 4: Desafíos de Seguimiento Multiobjetivo (MOT Challenges)
-* **Problema:** En cruces peatonales densos, una oclusión de más de 5 cuadros ($150\text{ ms}$) destruía el track viejo, generando un ID nuevo y cambiando el color del operario (*ID Switching*). Asimismo, detecciones redundantes de YOLO producían vectores dobles sobre la misma persona (*Ghost Tracks*).
-* **Solución Documentada en Hoja de Ruta:**
-  1. Extensión de la ventana de *coasting* a $15 - 20$ cuadros ($0.5\text{s} - 0.7\text{s}$) aprovechando el modelo epistemológico asimétrico ([ADR-008](../decisions/adr-008-kalman-epistemology-noise-divergence.md)).
-  2. Asignación global mediante el **Algoritmo Húngaro (Munkres)**.
-  3. **Supresión Espacial al Nacer (*World-Space Spatial NMS*)** para evitar la creación de tracks a distancias menores a $0.6\text{ m}$ de un track existente.
+### 3.4 Hallazgo 4: Desafíos de Seguimiento Multiobjetivo (MOT Challenges) — ✅ RESUELTO
+* **Problema:** En cruces peatonales densos, una oclusión de más de 5 cuadros ($150\text{ ms}$) destruía el track viejo con compuertas rígidas euclidianas, generando un ID nuevo y cambiando el color del operario (*ID Switching*). Asimismo, detecciones redundantes de YOLO producían vectores dobles sobre la misma persona (*Ghost Tracks*).
+* **Solución Implementada ([ADR-011](../decisions/adr-011-mahalanobis-hungarian-mot.md)):**
+  1. **Compuerta Elipsoidal Bayesiana de Mahalanobis ($\chi^2_2 \le 9.210$):** Incorpora la covarianza de innovación $S_i = P_{i[:2,:2]} + R$ adaptando el área de búsqueda según la incertidumbre cinemática y la velocidad inercial.
+  2. **Asignación Global Óptima (Algoritmo Húngaro / Munkres):** Minimización combinatoria global vía `scipy.optimize.linear_sum_assignment` resolviendo cruces sin *ID switching*.
+  3. **World-Space Spatial Birth NMS ($d_{\text{birth\_min}} = 0.6\text{ m}$):** Supresión estricta de propuestas espurias a menos de $0.6\text{ m}$ de tracks confirmados o nacimientos concurrentes.
 
 ---
 

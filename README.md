@@ -90,7 +90,7 @@ Camera frame ──► Pose inference
 | :--- | :--- | :--- | :--- |
 | **1. PERCEPTION** | Camera Frame $\to$ Pose Inference $\to$ Keypoints $\to$ Ground Contact | `src/inference/onnx_engine.py`<br>`src/pipeline/safety_pipeline.py` | **100% Implementado**<br>• Inferencia YOLO11n-Pose ONNX (`CoreMLExecutionProvider` / CPU / CUDA).<br>• Extracción anatómica de tobillos (`left_ankle: 15`, `right_ankle: 16`) con fallback a borde inferior de Bbox ([ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md), [ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md)). |
 | **2. GEOMETRY** | Proyección Homográfica $\to$ $(X,Y)$ métrico en plano de suelo ($Z_w=0$) | `src/core/homography.py` | **100% Implementado**<br>• Mapeo planar DLT $3 \times 3$ con validación geométrica de colinealidad y condicionamiento numérico $\kappa(H) < 10^6$ ([ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md), [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md)). |
-| **3. STATE ESTIMATION** | Filtro Kalman 2D Cinemático $\to$ Trayectoria Métrica Filtrada | `src/core/kalman_filter.py` | **100% Implementado**<br>• Modelo cinemático de Velocidad Constante (CV) con matriz de covarianza y ganancia $K_k$.<br>• Epistemología de 3 estados de observación (`OBSERVED`, `PREDICTED`, `STALE`) con límite de divergencia cuadrática ([ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md), [ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md)). |
+| **3. STATE ESTIMATION** | Filtro Kalman 2D Cinemático $\to$ Trayectoria Métrica Filtrada | `src/core/kalman_filter.py` | **100% Implementado**<br>• Modelo cinemático de Velocidad Constante (CV) con matriz de covarianza y ganancia $K_k$.<br>• Epistemología de 3 estados de observación (`OBSERVED`, `PREDICTED`, `STALE`) con límite de divergencia cuadrática ([ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md), [ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md)).<br>• Asignación global combinatoria (Algoritmo Húngaro / Munkres) con compuerta elipsoidal de Mahalanobis $\chi^2_2(0.99)$ y World-Space Spatial Birth NMS ($0.6\text{ m}$) ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md)). |
 | **4. DECISION LOGIC** | Zone Test $\to$ Spatial FSM $\to$ Dwell Timer | `src/core/spatial_fsm.py` | **100% Implementado**<br>• Regiones ortogonales Statecharts: `OccupancyState` (`OUTSIDE`, `ENTER_PENDING`, `INSIDE`, `EXIT_PENDING`) $\times$ `DwellState` (`NONE`, `NORMAL`, `WARNING`, `VIOLATION`) ([ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md)).<br>• Disparo fail-safe instantáneo en `INSIDE` ($t=0\text{ s}$) y bypass dinámico por velocidad $v_n \ge 1.6\text{ m/s}$ (ISO 13855). |
 | **5. OUTPUT** | Overlay Dual $\to$ Stream de Telemetría $\to$ Métricas | `src/utils/visualizer.py`<br>`scripts/run_demo.py` | **100% Implementado**<br>• Compositor dual en tiempo real (Perspectiva anotada + Bird's-Eye View métrico).<br>• Emisión de telemetría estructurada JSONL y reporte de percentiles de rendimiento.<br>*(Roadmap Edge AI: Exporter industrial para protocolos de planta MQTT / ZeroMQ / gRPC)*. |
 | **6. PROFILER (Ortogonal)** | Profiling granular por etapa $\to$ Latencia End-to-End ($T_1$) | `src/pipeline/safety_pipeline.py`<br>`src/inference/benchmark.py` | **95% Implementado**<br>• Medición de alta resolución en cada etapa ($T_1 = t_{\text{pre}} + t_{\text{inf}} + t_{\text{pose}} + t_{\text{proj}} + t_{\text{track}} + t_{\text{fsm}}$) con percentiles p50, p95 y p99.<br>*(Próximo paso 5%: Medición de hardware timestamp en captura e ingestión con ring buffer)*. |
@@ -366,6 +366,7 @@ Para evitar la conflación entre la **topología espacial** y la **acumulación 
   * **[ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md):** Epistemología de Estados de Observación Kalman, Ruido Espectral y Desescalada Asimétrica.
   * **[ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md):** Desacoplamiento de Autómata Espacial y Clasificación Temporal de Dwell en Regiones Ortogonales (Statecharts).
   * **[ADR-010](docs/decisions/adr-010-dual-latency-profiling-iso13855.md):** Doble Horizonte Temporal de Latencia en Edge AI Industrial ($T_{\text{system}}$ vs $T_{\text{event}}$ - ISO 13855 / IEC 61496).
+  * **[ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md):** Bayesian Validation Gating (Mahalanobis $\chi^2$), Asignación Global Húngara y World-Space Spatial Birth NMS.
 
 ---
 
@@ -458,30 +459,24 @@ Para la memoria técnica completa, particularidades metrológicas, tabla compara
 
 ---
 
-## 🔍 Problemas Conocidos y Hoja de Ruta de Seguimiento (MOT Challenges)
+## 🔍 Desafíos de Seguimiento Multiobjetivo (MOT) y Soluciones Aplicadas
 
-Durante las pruebas de estrés con datasets de alta densidad peatonal y oclusiones complejas (`pets2009_s2_l1` y `opencv_vtest`), se han catalogado los siguientes desafíos en la capa de seguimiento multiobjetivo (*Multi-Object Tracking - MOT*):
+Durante las pruebas de estrés con datasets de alta densidad peatonal y oclusiones complejas (`pets2009_s2_l1` y `openvino_people`), se identificaron y resolvieron los siguientes desafíos en la capa de seguimiento multiobjetivo (*Multi-Object Tracking - MOT*):
 
-### 1. Fragmentación de Tracks y Cambio de Identidad (*ID Switching* / Cambio de Color)
-* **Síntoma:** Al ocurrir un cruce o una oclusión parcial entre personas, un operario pierde su vector de seguimiento y, al reaparecer tras unos cuadros, se le asigna un nuevo identificador (`ID: X` $\to$ `ID: Y`), lo que provoca que su color cambie repentinamente en la visualización cenital (BEV).
-* **Causa Raíz:** La ventana de espera durante oclusiones en el tracker cinemático ([`src/core/kalman_filter.py`](src/core/kalman_filter.py)) está fijada en `max_missed = 5` cuadros ($\approx 150\text{ ms}$). Si la oclusión supera este umbral, el track se destruye (`TrackState.DELETED`) y el re-ingreso se interpreta como un nuevo sujeto.
-* **Solución Propuesta:** 
-  1. Ampliar el horizonte de *coasting* a $15 - 20$ cuadros ($0.5\text{s} - 0.7\text{s}$) aprovechando el modelo epistemológico asimétrico ([ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md)), permitiendo que la predicción de Kalman mantenga viva la hipótesis espacial.
-  2. Implementar asignación combinatoria global mediante el **Algoritmo Húngaro (Munkres / `scipy.optimize.linear_sum_assignment`)** sobre la matriz de distancias métricas, sustituyendo la asignación codiciosa (*greedy*).
+### 1. Fragmentación de Tracks y Cambio de Identidad (*ID Switching*) — ✅ RESUELTO ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md))
+* **Síntoma Previo:** Al ocurrir cruces u oclusiones dinámicas, la asignación codiciosa euclidiana intercambiaba identificadores (`ID: X` $\leftrightarrow$ `ID: Y`) o destruía tracks al salir de oclusión.
+* **Solución Implementada:**
+  1. **Compuerta Elipsoidal de Mahalanobis $\chi^2_2(0.99) \le 9.210$:** Proyección de covarianza de innovación $S = P + R$ que ensancha dinámicamente el elipsoide de búsqueda a lo largo del vector de velocidad $\vec{v}$.
+  2. **Asignación Global Combinatoria (Algoritmo Húngaro / Munkres):** Optimización bipartite global vía `scipy.optimize.linear_sum_assignment` resolviendo cruces de trayectorias en $\mathcal{O}(N^3)$ en $0.017\text{ ms}$.
 
-### 2. Vectores Múltiples y Duplicados sobre el Mismo Sujeto (*Ghost / Duplicate Tracks*)
-* **Síntoma:** En momentos específicos, una sola persona puede mostrar dos o tres vectores de velocidad y puntos de apoyo simultáneos de distintos colores.
-* **Causa Raíz:** Cuando el detector YOLO entrega dos propuestas de cajas o articulaciones cercanas sobre el mismo cuerpo (por ejemplo, extremidades separadas o falsos positivos en umbral de NMS 2D), la asignación *greedy* inicializa un segundo track en paralelo al no encontrar coincidencia biunívoca.
-* **Solución Propuesta:**
-  1. **Supresión Espacial al Nacer (*World-Space Spatial NMS*):** Imponer una regla de no-nacimiento: prohibir la inicialización de un nuevo track si ya existe un track confirmado/activo a una distancia métrica menor al radio del cuerpo humano ($d < 0.6\text{ m}$).
-  2. **Fusión de Tracks Cercanos (*Track Merging*):** Colapsar tracks con covarianzas solapadas y trayectorias convergentes.
+### 2. Vectores Múltiples y Duplicados sobre el Mismo Sujeto (*Ghost Tracks*) — ✅ RESUELTO ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md))
+* **Síntoma Previo:** Propuestas redundantes de YOLO (ambos tobillos o doble caja en NMS 2D) generaban tracks paralelos sobre la misma persona.
+* **Solución Implementada:**
+  1. **World-Space Spatial Birth NMS ($d_{\text{birth\_min}} = 0.6\text{ m}$):** Regla estricta de no-nacimiento que prohíbe instanciar tracks si la detección métrica en el suelo dista menos de $0.6\text{ m}$ de cualquier track activo o de otro nacimiento en el mismo cuadro.
 
-### 3. Gap de Dominio en Videos Sintéticos vs YOLO (*Synthetic Domain Gap*)
-* **Síntoma:** En las secuencias sintéticas locales (`sequence_a/b/c`), YOLO11-Pose no genera detecciones ($\text{conf} < 0.25$) al recibir figuras dibujadas con primitivas vectoriales planas de OpenCV (`cv2.rectangle`, `cv2.line`).
-* **Estrategia Acordada:**
-  1. **Opción 1 (Seleccionada para CI & Pruebas Unitarias):** Inyección directa de Ground Truth analítico en el pipeline salteando YOLO. Permite validar determinísticamente el $100\%$ de la lógica de seguridad (Kalman, FSM, Homografía, Dwell) a nivel milimétrico sin consumo de inferencia.
-  2. **Opción 2 (Seleccionada para Flujo E2E):** Incrustar recortes fotográficos reales de operarios ($PNG$ Alpha) proyectados sobre el suelo para alimentar a YOLO con texturas humanas reales.
-  3. **Opción 3 (Descartada):** Renderizado 3D complejo (Blender/Isaac Sim), descartado por sobrecarga computacional fuera de alcance.
+### 3. Gap de Dominio en Videos Sintéticos vs YOLO (*Synthetic Domain Gap*) — ✅ MITIGADO
+* **Síntoma:** En las secuencias sintéticas locales primitivas (`sequence_a/b/c`), YOLO11-Pose no genera detecciones ($\text{conf} < 0.25$) por falta de textura fotográfica.
+* **Estrategia Aplicada:** Inyección directa de Ground Truth analítico en el pipeline para CI/CD (validación formal milimétrica de Kalman, FSM y Homografía sin inferencia) y uso del catálogo de datasets reales (`openvino_people`, `pets2009_s2_l1`, `mendeley_industrial`, `mendeley_walkway_violation`) para validación E2E.
 
 ---
 
