@@ -49,6 +49,7 @@ data/results/*
 !data/results/.gitkeep
 benchmark_results.json
 *.log
+output/
 
 # Environments & IDEs
 .venv/
