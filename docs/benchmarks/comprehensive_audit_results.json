@@ -1,0 +1,370 @@
+{
+  "metadata": {
+    "environment": {
+      "timestamp_utc": "2026-09-03T05:57:42.956148+00:00",
+      "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "processor": "arm",
+      "machine": "arm64",
+      "python_version": "3.13.15",
+      "torch_version": "2.13.0",
+      "torch_mps_available": true,
+      "torch_mps_built": true,
+      "onnxruntime_version": "1.29.0",
+      "available_ort_providers": [
+        "CoreMLExecutionProvider",
+        "AzureExecutionProvider",
+        "CPUExecutionProvider"
+      ],
+      "cpu_brand": "Apple M1 Pro",
+      "cpu_cores": 8,
+      "ram_gb": 16.0,
+      "power_source": "AC Power",
+      "battery_charge": "100%",
+      "thermal_warning": "No warning",
+      "git_commit": "05500988cb9235da0ba12491fd7eef98b67a55bd",
+      "git_branch": "main",
+      "git_dirty": true
+    },
+    "model_checksums_sha256": {
+      "pytorch_weights": "869e83fcdffdc7371fa4e34cd8e51c838cc729571d1635e5141e3075e9319dc0",
+      "onnx_fp32_640": "bf3d48d7a128e5cdf9389a8519432734c95619900b21f91cadee2445cde6abe8",
+      "onnx_fp16_640": "5e21e76eb89b73440fdd5017ef10ea6f268bb3d02e33e6434702a2c5ca0d4f86",
+      "onnx_int8_640": "df961ea2b2520955fb7ba15236848f0955d7ddc6f572ac0b752a9b4613cb9227",
+      "onnx_fp32_960": "9dc6e10e1986e5ac13d7771fe8d42b0adea27ea52902d440b0f5a9da0b03c474",
+      "onnx_fp16_960": "24204f4ac4c3d297b1e542ac22445ec2467243b5aa7ad2a2244a77545da68be5"
+    }
+  },
+  "experiment_1_runtimes": {
+    "benchmark": "runtime_engine_showdown",
+    "input_source": "real_video_frames (openvino_people)",
+    "repetitions": 3,
+    "internal_inference_budget_p95_ms": 30.0,
+    "results": [
+      {
+        "runtime_id": "pytorch_cpu",
+        "display_name": "PyTorch Eager (CPU)",
+        "provider_or_device": "PyTorch_CPU",
+        "warmup": 20,
+        "iterations": 100,
+        "mean_ms": 83.24,
+        "p50_ms": 82.15,
+        "p95_ms": 88.63,
+        "p99_ms": 102.73,
+        "std_ms": 4.22,
+        "fps": 12.0,
+        "speedup_vs_baseline": 1.0,
+        "passed_internal_budget": false,
+        "repetition_means_ms": [
+          80.55,
+          84.53,
+          84.63
+        ]
+      },
+      {
+        "runtime_id": "onnx_cpu",
+        "display_name": "ONNX Runtime (CPU)",
+        "provider_or_device": "CPUExecutionProvider",
+        "warmup": 20,
+        "iterations": 100,
+        "mean_ms": 43.05,
+        "p50_ms": 42.23,
+        "p95_ms": 47.98,
+        "p99_ms": 60.84,
+        "std_ms": 4.47,
+        "fps": 23.2,
+        "speedup_vs_baseline": 1.93,
+        "passed_internal_budget": false,
+        "repetition_means_ms": [
+          46.08,
+          41.85,
+          41.21
+        ]
+      },
+      {
+        "runtime_id": "pytorch_mps",
+        "display_name": "PyTorch Eager (MPS)",
+        "provider_or_device": "PyTorch_MPS",
+        "warmup": 20,
+        "iterations": 100,
+        "mean_ms": 17.28,
+        "p50_ms": 16.85,
+        "p95_ms": 19.02,
+        "p99_ms": 23.22,
+        "std_ms": 1.68,
+        "fps": 57.9,
+        "speedup_vs_baseline": 4.82,
+        "passed_internal_budget": true,
+        "repetition_means_ms": [
+          17.19,
+          17.22,
+          17.44
+        ]
+      },
+      {
+        "runtime_id": "onnx_coreml",
+        "display_name": "ONNX Runtime (CoreML)",
+        "provider_or_device": "CoreMLExecutionProvider",
+        "warmup": 20,
+        "iterations": 100,
+        "mean_ms": 16.5,
+        "p50_ms": 16.31,
+        "p95_ms": 18.3,
+        "p99_ms": 20.01,
+        "std_ms": 1.49,
+        "fps": 60.6,
+        "speedup_vs_baseline": 5.04,
+        "passed_internal_budget": true,
+        "repetition_means_ms": [
+          17.68,
+          15.43,
+          16.38
+        ]
+      }
+    ]
+  },
+  "experiment_2_precision": {
+    "benchmark": "quantization_and_geometric_precision",
+    "internal_tolerance_cm": 15.0,
+    "internal_latency_budget_ms": 30.0,
+    "results": [
+      {
+        "model_id": "fp32",
+        "display_name": "FP32 (Single Precision)",
+        "precision": "FP32",
+        "size_mb": 11.3,
+        "size_reduction_pct": 0.0,
+        "mean_latency_ms": 15.79,
+        "p95_latency_ms": 18.03,
+        "fps": 63.3,
+        "pixel_rmse_px": 26.5,
+        "metric_rmse_cm": 33.32,
+        "max_metric_drift_cm": 67.85,
+        "near_field_rmse_cm": 27.05,
+        "mid_field_rmse_cm": 31.5,
+        "far_field_rmse_cm": 41.6,
+        "meets_internal_tolerance": false,
+        "meets_internal_inference_budget": true
+      },
+      {
+        "model_id": "fp16",
+        "display_name": "FP16 (Half Precision)",
+        "precision": "FP16",
+        "size_mb": 5.69,
+        "size_reduction_pct": 49.7,
+        "mean_latency_ms": 42.18,
+        "p95_latency_ms": 45.62,
+        "fps": 23.7,
+        "pixel_rmse_px": 26.51,
+        "metric_rmse_cm": 33.35,
+        "max_metric_drift_cm": 66.9,
+        "near_field_rmse_cm": 27.07,
+        "mid_field_rmse_cm": 31.49,
+        "far_field_rmse_cm": 41.67,
+        "meets_internal_tolerance": false,
+        "meets_internal_inference_budget": false
+      },
+      {
+        "model_id": "int8",
+        "display_name": "INT8 (Dynamic Quant)",
+        "precision": "INT8",
+        "size_mb": 3.27,
+        "size_reduction_pct": 71.1,
+        "mean_latency_ms": 91.58,
+        "p95_latency_ms": 100.04,
+        "fps": 10.9,
+        "pixel_rmse_px": 18.3,
+        "metric_rmse_cm": 18.96,
+        "max_metric_drift_cm": 88.03,
+        "near_field_rmse_cm": 19.2,
+        "mid_field_rmse_cm": 20.06,
+        "far_field_rmse_cm": 17.51,
+        "meets_internal_tolerance": false,
+        "meets_internal_inference_budget": false
+      }
+    ]
+  },
+  "experiment_3_resolution": {
+    "benchmark": "resolution_and_far_field_sensitivity",
+    "video_dataset": "/Users/xander/Projects/edge-safety-guard/data/raw/mendeley_industrial/mendeley_walkway_violation.mp4",
+    "total_evaluated_frames": 348,
+    "results": [
+      {
+        "resolution_id": "640_fp32",
+        "display_name": "640p FP32 (Baseline)",
+        "resolution": "640x640",
+        "precision": "FP32",
+        "model_size_mb": 11.3,
+        "preprocess_ms": 0.94,
+        "inference_mean_ms": 18.77,
+        "inference_p95_ms": 20.99,
+        "total_t1_mean_ms": 19.8,
+        "total_t1_p95_ms": 22.35,
+        "pipeline_fps": 46.9,
+        "total_detections": 83,
+        "far_field_detections": 83,
+        "meets_internal_inference_budget": true,
+        "meets_pipeline_budget": true
+      },
+      {
+        "resolution_id": "640_fp16",
+        "display_name": "640p FP16",
+        "resolution": "640x640",
+        "precision": "FP16",
+        "model_size_mb": 5.69,
+        "preprocess_ms": 0.91,
+        "inference_mean_ms": 42.9,
+        "inference_p95_ms": 47.74,
+        "total_t1_mean_ms": 43.88,
+        "total_t1_p95_ms": 48.74,
+        "pipeline_fps": 22.0,
+        "total_detections": 76,
+        "far_field_detections": 76,
+        "meets_internal_inference_budget": false,
+        "meets_pipeline_budget": true
+      },
+      {
+        "resolution_id": "960_fp32",
+        "display_name": "960p FP32",
+        "resolution": "960x960",
+        "precision": "FP32",
+        "model_size_mb": 11.58,
+        "preprocess_ms": 1.88,
+        "inference_mean_ms": 40.44,
+        "inference_p95_ms": 43.12,
+        "total_t1_mean_ms": 42.54,
+        "total_t1_p95_ms": 45.34,
+        "pipeline_fps": 22.6,
+        "total_detections": 639,
+        "far_field_detections": 639,
+        "meets_internal_inference_budget": false,
+        "meets_pipeline_budget": true
+      },
+      {
+        "resolution_id": "960_fp16",
+        "display_name": "960p FP16",
+        "resolution": "960x960",
+        "precision": "FP16",
+        "model_size_mb": 5.85,
+        "preprocess_ms": 1.86,
+        "inference_mean_ms": 95.38,
+        "inference_p95_ms": 110.6,
+        "total_t1_mean_ms": 97.44,
+        "total_t1_p95_ms": 113.47,
+        "pipeline_fps": 10.1,
+        "total_detections": 624,
+        "far_field_detections": 624,
+        "meets_internal_inference_budget": false,
+        "meets_pipeline_budget": false
+      }
+    ]
+  },
+  "experiment_4_stages": {
+    "benchmark": "granular_stage_latency_breakdown",
+    "evaluated_frames": 100,
+    "stages": [
+      {
+        "stage_name": "1. Ingest & Frame Capture (Buffer)",
+        "mean_ms": 1.66,
+        "p50_ms": 1.32,
+        "p95_ms": 2.52,
+        "p99_ms": 7.55,
+        "pct_of_t1": 9.2
+      },
+      {
+        "stage_name": "2. Preprocessing (Letterbox / Norm)",
+        "mean_ms": 0.9,
+        "p50_ms": 0.87,
+        "p95_ms": 1.04,
+        "p99_ms": 1.19,
+        "pct_of_t1": 5.0
+      },
+      {
+        "stage_name": "3. YOLO11n-Pose Inference (CoreML)",
+        "mean_ms": 16.42,
+        "p50_ms": 17.08,
+        "p95_ms": 18.52,
+        "p99_ms": 19.55,
+        "pct_of_t1": 91.6
+      },
+      {
+        "stage_name": "4. Detection & Keypoint Parsing",
+        "mean_ms": 0.21,
+        "p50_ms": 0.21,
+        "p95_ms": 0.29,
+        "p99_ms": 0.32,
+        "pct_of_t1": 1.2
+      },
+      {
+        "stage_name": "5. Homography DLT Projection",
+        "mean_ms": 0.08,
+        "p50_ms": 0.08,
+        "p95_ms": 0.1,
+        "p99_ms": 0.13,
+        "pct_of_t1": 0.4
+      },
+      {
+        "stage_name": "6. Kalman Filter & Hungarian MOT",
+        "mean_ms": 0.29,
+        "p50_ms": 0.3,
+        "p95_ms": 0.43,
+        "p99_ms": 0.44,
+        "pct_of_t1": 1.6
+      },
+      {
+        "stage_name": "7. Spatial FSM & Dwell Statecharts",
+        "mean_ms": 0.02,
+        "p50_ms": 0.01,
+        "p95_ms": 0.06,
+        "p99_ms": 0.07,
+        "pct_of_t1": 0.1
+      },
+      {
+        "stage_name": "Total Vision Pipeline Latency (T1)",
+        "mean_ms": 17.92,
+        "p50_ms": 18.53,
+        "p95_ms": 20.16,
+        "p99_ms": 21.42,
+        "pct_of_t1": 100.0
+      },
+      {
+        "stage_name": "Total End-to-End System (T_system)",
+        "mean_ms": 19.58,
+        "p50_ms": 19.88,
+        "p95_ms": 22.22,
+        "p99_ms": 26.13,
+        "pct_of_t1": 100.0
+      }
+    ]
+  },
+  "experiment_5_functional": {
+    "sequence_a_results": {
+      "total_frames": 180,
+      "danger_frames": 76,
+      "mot_summary": {
+        "total_frames": 180,
+        "total_gt_objects": 180,
+        "total_detections": 185,
+        "total_tp": 179,
+        "total_fp": 6,
+        "total_fn": 1,
+        "total_id_switches": 0,
+        "mota": 0.9611,
+        "idf1": 0.9808,
+        "precision": 0.9676,
+        "recall": 0.9944,
+        "mean_pixel_rmse_px": 0.0,
+        "mean_metric_rmse_cm": 36.49,
+        "max_metric_drift_cm": 76.86,
+        "near_field_rmse_cm": 25.52,
+        "mid_field_rmse_cm": 36.9,
+        "far_field_rmse_cm": 46.86,
+        "ghost_tracks_count": 1
+      },
+      "first_gt_entry_frame": 54,
+      "system_trip_frame": 52,
+      "trip_delay_frames": -2,
+      "total_event_latency_ms": -66.67,
+      "functional_pass": true
+    }
+  }
+}

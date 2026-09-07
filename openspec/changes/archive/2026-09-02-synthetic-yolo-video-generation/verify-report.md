@@ -65,4 +65,26 @@ tests/test_visualizer.py ... PASSED
 - [x] Worker sprites loaded with clean alpha blending without edge halos.
 - [x] Generated synthetic video sequences (`A`, `B`, `C`) achieve YOLO11 pose / detection confidence $\ge 0.50$ across 100% of frames.
 - [x] Sequence B correctly preserves occlusion coasting when lower limbs pass behind the industrial barrier.
-- [x] All 202 unit and integration tests in the repository pass 100%.
+- [x] All 209 unit and integration tests in the repository pass 100% (including `tests/test_benchmark_traceability.py`).
+
+---
+
+## Provenance & Traceability Audit Note (2026-09-03)
+
+### Discrepancy Investigation & Root Cause Analysis
+- **Discrepancy**: Prior to this audit, stored artifact summaries in `data/results/sequence_a_clean_incursion/`, `data/results/sequence_b_occlusion_coasting/`, and `data/results/sequence_c_dwell_loitering/` showed state `SAFE` for 100% of frames and 0 observed tracks for sequences B and C.
+- **Root Cause**:
+  1. Those files were generated on **2026-08-31 20:21-20:22** (commit `08df2ba`), when the synthetic video generator drew simplistic OpenCV vector primitives (`cv2.line`, `cv2.rectangle`). Because YOLO11-Pose was pre-trained on real MS COCO images, it had 0% activation on those flat shapes, resulting in no detections, no tracks, and constant `SAFE` output.
+  2. When ADR-012 was implemented on **2026-09-02 00:49** (commit `0550098`) introducing photorealistic RGBA worker sprites, pinhole perspective scaling, and contact shadows, the sample videos in `data/samples/` were updated, but the evaluation runner was never executed to refresh the archived results in `data/results/`.
+  3. In addition, `configs/default_config.yaml` lacked explicit zone dwell thresholds, falling back to a default `dwell_violation_s: 10.0`, which prevented the 6.0-second stationary dwell in Sequence C from triggering temporal violation.
+
+### Remediation & Exact Reproduction
+1. Configured explicit zone geometry and dwell parameters (`dwell_warning_s: 2.0`, `dwell_violation_s: 5.0`) in `configs/default_config.yaml` and dedicated profiles in `configs/datasets/sequence_{a,b,c}_*.yaml`.
+2. Added cryptographic SHA256 hashes, Git commit metadata, command-line arguments, and timestamps to all `summary.json` artifacts.
+3. Added automated invariant verification (`src/utils/benchmark_verifier.py`, `scripts/verify_synthetic_results.py`, and `tests/test_benchmark_traceability.py`) enforcing non-zero tracks, active intrusions, fail-safe lockout (Sequence B), and dwell violations (Sequence C).
+4. Re-executed evaluation pipeline across all sequences:
+   - **Command**: `python scripts/run_dataset_test.py --dataset sequence_<seq> --verify-invariants --no-display`
+   - **Sequence A**: 180 frames, 2 tracks, 75 DANGER_INTRUSION ($41.7\%$), 101 SAFE ($56.1\%$).
+   - **Sequence B**: 180 frames, 4 tracks, 28 DANGER_INTRUSION ($15.6\%$), 107 LOCKOUT ($59.4\%$).
+   - **Sequence C**: 300 frames, 3 tracks, 236 DANGER_INTRUSION ($78.7\%$), 14 DWELL_VIOLATIONS.
+

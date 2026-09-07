@@ -6,8 +6,11 @@ Modular, Decoupled Ingestion and Evaluation Test Runner for Empirical Surveillan
 
 import argparse
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
+import subprocess
 import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -26,7 +29,46 @@ from src.core.kalman_filter import MultiTargetKalmanTracker
 from src.core.spatial_fsm import SpatialFSM, ZoneConfig
 from src.inference.onnx_engine import OnnxEngine
 from src.pipeline.safety_pipeline import LayoutMode, PipelineResult, SafetyPipeline
+from src.utils.benchmark_verifier import BenchmarkInvariantError, verify_benchmark_summary_invariants
 from src.utils.visualizer import DualVisualizer
+
+
+def compute_file_sha256(filepath: Union[str, Path]) -> str:
+    """Compute SHA256 hexadecimal digest of a local file."""
+    path = Path(filepath)
+    if not path.is_file():
+        return ""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def get_git_traceability() -> Dict[str, Any]:
+    """Retrieve current Git commit, branch, and working tree cleanliness."""
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT), stderr=subprocess.DEVNULL
+        ).decode().strip()
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(REPO_ROOT), stderr=subprocess.DEVNULL
+        ).decode().strip()
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=str(REPO_ROOT), stderr=subprocess.DEVNULL
+        ).decode().strip()
+        return {
+            "commit": commit,
+            "branch": branch,
+            "dirty": len(status) > 0,
+        }
+    except Exception:
+        return {
+            "commit": "unknown",
+            "branch": "unknown",
+            "dirty": False,
+        }
+
 
 
 @dataclass(frozen=True)
@@ -43,6 +85,7 @@ class DatasetTestConfig:
     conf_threshold: float = 0.4
     min_ankle_bbox_height: float = 120.0
     max_frames: Optional[int] = None
+    verify_invariants: bool = False
 
 
 @dataclass
@@ -60,6 +103,7 @@ class DatasetTestSummary:
     total_tracks: int = 0
     danger_events_count: int = 0
     dwell_violations_count: int = 0
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def format_text(self) -> str:
         """Format summary into a structured terminal report."""
@@ -85,6 +129,23 @@ class DatasetTestSummary:
         for state, count in sorted(self.state_counts.items()):
             pct = (count / max(1, self.total_frames)) * 100.0
             lines.append(f"  • {state:<22}: {count:5d} frames ({pct:5.1f}%)")
+
+        if self.metadata:
+            git_info = self.metadata.get("git", {})
+            model_info = self.metadata.get("model", {})
+            config_info = self.metadata.get("config", {})
+            dataset_info = self.metadata.get("source", {})
+            lines.extend([
+                "-" * 76,
+                "Traceability & Provenance Metadata:",
+                f"  • Generated At (UTC) : {self.metadata.get('generated_at_utc', 'N/A')}",
+                f"  • Git Commit         : {git_info.get('commit', 'N/A')[:8]} (branch: {git_info.get('branch', 'N/A')}, dirty: {git_info.get('dirty', False)})",
+                f"  • Model Path         : {model_info.get('path', 'N/A')}",
+                f"  • Model SHA256       : {model_info.get('sha256', 'N/A')[:16]}...",
+                f"  • Config Source      : {config_info.get('path', 'N/A')}",
+                f"  • Source Video       : {dataset_info.get('path', 'N/A')}",
+                f"  • Invariants Verified: {self.metadata.get('invariants_passed', False)}",
+            ])
         lines.append("=" * 76)
         return "\n".join(lines)
 
@@ -128,6 +189,7 @@ class DatasetTestRunner:
         self.events_file = None
         self.pipeline: Optional[SafetyPipeline] = None
         self.visualizer: Optional[DualVisualizer] = None
+        self.zone_cfg: Optional[ZoneConfig] = None
 
         self.dataset_results_dir = self.config.output_dir / self.config.dataset_name
         self.video_output_path = self.dataset_results_dir / f"annotated_{self.config.dataset_name}.mp4"
@@ -154,8 +216,8 @@ class DatasetTestRunner:
         engine = OnnxEngine(self.config.model_path)
         homography = HomographyManager(config_path=self.config.config_path)
         tracker = MultiTargetKalmanTracker()
-        zone_cfg = load_zone_config_from_yaml(self.config.config_path)
-        fsm = SpatialFSM(config=zone_cfg)
+        self.zone_cfg = load_zone_config_from_yaml(self.config.config_path)
+        fsm = SpatialFSM(config=self.zone_cfg)
 
         self.pipeline = SafetyPipeline(
             engine=engine,
@@ -291,9 +353,26 @@ class DatasetTestRunner:
 
         summary = self.get_summary()
 
+        # Invariant verification check for synthetic benchmarks
+        violations = verify_benchmark_summary_invariants(
+            dataset_name=self.config.dataset_name,
+            total_tracks=summary.total_tracks,
+            state_counts=summary.state_counts,
+            danger_events_count=summary.danger_events_count,
+            dwell_violations_count=summary.dwell_violations_count,
+        )
+        summary.metadata["invariants_passed"] = len(violations) == 0
+        summary.metadata["invariant_violations"] = violations
+
         # Save summary JSON
         with open(self.summary_output_path, "w", encoding="utf-8") as f:
             json.dump(asdict(summary), f, indent=2)
+
+        if self.config.verify_invariants and violations:
+            raise BenchmarkInvariantError(
+                f"Benchmark invariant validation failed for '{self.config.dataset_name}':\n"
+                + "\n".join(f"  - {v}" for v in violations)
+            )
 
         return summary
 
@@ -314,8 +393,39 @@ class DatasetTestRunner:
             except Exception:
                 pass
 
+    def _build_traceability_metadata(self) -> Dict[str, Any]:
+        """Assemble cryptographic, git, and configuration provenance metadata."""
+        return {
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "git": get_git_traceability(),
+            "command": " ".join(sys.argv),
+            "model": {
+                "path": str(self.config.model_path),
+                "sha256": compute_file_sha256(self.config.model_path),
+            },
+            "config": {
+                "path": str(self.config.config_path),
+                "sha256": compute_file_sha256(self.config.config_path),
+                "zone_name": self.zone_cfg.name if self.zone_cfg else "Unknown",
+                "dwell_warning_s": self.zone_cfg.dwell_warning_s if self.zone_cfg else 0.0,
+                "dwell_violation_s": self.zone_cfg.dwell_violation_s if self.zone_cfg else 0.0,
+                "danger_polygon": [list(p) for p in self.zone_cfg.danger_polygon] if self.zone_cfg else [],
+                "warning_polygon": [list(p) for p in self.zone_cfg.warning_polygon] if (self.zone_cfg and self.zone_cfg.warning_polygon) else None,
+            },
+            "source": {
+                "dataset_name": self.config.dataset_name,
+                "path": str(self.config.source),
+                "sha256": compute_file_sha256(self.config.source),
+            },
+            "parameters": {
+                "conf_threshold": self.config.conf_threshold,
+                "min_ankle_bbox_height": self.config.min_ankle_bbox_height,
+                "max_frames": self.config.max_frames,
+            },
+        }
+
     def get_summary(self) -> DatasetTestSummary:
-        """Compile execution statistics."""
+        """Compile execution statistics and traceability metadata."""
         elapsed = max(1e-5, self._end_time - self._start_time)
         avg_fps = self._frame_count / elapsed
 
@@ -327,6 +437,8 @@ class DatasetTestRunner:
             p99 = float(np.percentile(arr_t1, 99))
         else:
             mean_lat = p50 = p95 = p99 = 0.0
+
+        metadata = self._build_traceability_metadata()
 
         return DatasetTestSummary(
             dataset_name=self.config.dataset_name,
@@ -341,6 +453,7 @@ class DatasetTestRunner:
             total_tracks=len(self._observed_track_ids),
             danger_events_count=self._danger_events,
             dwell_violations_count=self._dwell_violations,
+            metadata=metadata,
         )
 
 
@@ -415,6 +528,12 @@ def parse_args() -> DatasetTestConfig:
         default=None,
         help="Maximum frames to evaluate.",
     )
+    parser.add_argument(
+        "--verify-invariants",
+        action="store_true",
+        default=False,
+        help="Enforce strict ground-truth invariant verification (fail if tracks, intrusions, lockout, or dwell violations are missing).",
+    )
 
     parsed = parser.parse_args()
 
@@ -427,7 +546,11 @@ def parse_args() -> DatasetTestConfig:
             meta = DATASET_REGISTRY[dataset_name]
             source_path = str(REPO_ROOT / "data" / "raw" / meta.name / meta.filename)
         else:
-            source_path = str(REPO_ROOT / "data" / "raw" / dataset_name / f"{dataset_name}.mp4")
+            sample_path = REPO_ROOT / "data" / "samples" / f"{dataset_name}.mp4"
+            if sample_path.is_file():
+                source_path = str(sample_path)
+            else:
+                source_path = str(REPO_ROOT / "data" / "raw" / dataset_name / f"{dataset_name}.mp4")
 
     if parsed.config is not None:
         config_path = parsed.config
@@ -435,7 +558,11 @@ def parse_args() -> DatasetTestConfig:
         if dataset_name in DATASET_REGISTRY and DATASET_REGISTRY[dataset_name].default_config:
             config_path = DATASET_REGISTRY[dataset_name].default_config
         else:
-            config_path = f"configs/datasets/{dataset_name}.yaml"
+            dataset_cfg = REPO_ROOT / "configs" / "datasets" / f"{dataset_name}.yaml"
+            if dataset_cfg.is_file():
+                config_path = str(dataset_cfg)
+            else:
+                config_path = "configs/default_config.yaml"
 
     return DatasetTestConfig(
         source=source_path,
@@ -449,6 +576,7 @@ def parse_args() -> DatasetTestConfig:
         conf_threshold=parsed.conf_threshold,
         min_ankle_bbox_height=parsed.min_ankle_bbox_height,
         max_frames=parsed.max_frames,
+        verify_invariants=parsed.verify_invariants,
     )
 
 

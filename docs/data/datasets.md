@@ -174,12 +174,17 @@ Durante la integración y evaluación de estos datasets, se identificaron y reso
 
 ---
 
-### 3.5 Hallazgo 5: Gap de Dominio en Videos Sintéticos (Domain Gap en Deep Learning)
-* **Problema:** Las secuencias sintéticas actuales (`sequence_a/b/c`) dibujan al operario mediante primitivas vectoriales planas de OpenCV (`cv2.rectangle`, `cv2.line`). Al estar YOLO11-Pose entrenado sobre fotografías reales de MS COCO (gradientes de iluminación, pliegues de ropa, texturas de piel), los mapas de activación de la red entregan confianza nula ($\text{conf} < 0.25$), por lo que el detector no genera propuestas de pose sobre las figuras geométricas simples.
-* **Estrategia de Solución Acordada:**
-  1. **Opción 1: Inyección Analítica / Mock Ground Truth (Seleccionada para CI & Core):** El generador sintético exporta las coordenadas analíticas exactas de los 17 keypoints y el bounding box en formato `.json` o memoria para ser consumidos directamente por el tracker y la FSM sin inferencia YOLO. Proporciona una suite determinista, exacta y ultrarrápida para integración continua.
-  2. **Opción 2: Composición Fotorealista 2D con Sprites Alpha (Seleccionada para End-to-End):** Incrustar recortes fotográficos reales de operarios ($PNG$ con canal Alpha transparente) proyectados por la homografía sobre el fondo de la nave, permitiendo que YOLO detecte la silueta con alta confianza ($> 0.85$) sin perder el control de la trayectoria.
-  3. **Opción 3: Motores de Simulación 3D (Descartada):** Descartada formalmente por sobrecarga computacional y complejidad innecesaria para los objetivos del proyecto.
+### 3.5 Hallazgo 5: Gap de Dominio en Videos Sintéticos (Domain Gap en Deep Learning) — ✅ RESUELTO ([ADR-012](../decisions/adr-012-synthetic-yolo-video-generation.md))
+* **Causa Raíz Histórica:** Las implementaciones sintéticas iniciales (previas al 2 de septiembre de 2026, commits `08df2ba` y `91507db`) dibujaban al operario mediante primitivas vectoriales planas de OpenCV (`cv2.rectangle`, `cv2.line`). Al estar YOLO11-Pose entrenado sobre fotografías reales de MS COCO (gradientes de iluminación, pliegues de ropa, texturas de piel), los mapas de activación de la red entregaban confianza nula ($\text{conf} < 0.25$), por lo que el detector no generaba propuestas de pose sobre las figuras geométricas simples. Esto provocó que los primeros artefactos archivados en `data/results/sequence_a/b/c` mostraran 0 tracks y estado `SAFE` permanente.
+* **Solución Implementada ([ADR-012](../decisions/adr-012-synthetic-yolo-video-generation.md)):**
+  1. **Composición Fotorealista 2.5D con Sprites Alpha Normalizados:** Extracción de tracklets con `yolo11n-seg` sobre metraje real de CCTV industrial (`data/raw/mendeley_industrial/1_tr1.mp4`), normalizados en lienzo canónico de $160 \times 320\text{ px}$ con *alpha-feathering* suave y anclaje inferior (`scripts/prepare_sprites.py`).
+  2. **Escalado Perspectivo Pinhole Calibrado:** Proyección estenopeica $h_{px}(Y) = 480.0 / (1.0 + 0.165 \cdot Y)$, asegurando que el operario mantenga una escala física óptima de detección ($h \in [240, 480]\text{ px}$) en todo el rango $Y \in [0.0, 6.0]\text{ m}$.
+  3. **Sombra de Contacto Direccional Gaussiana:** Elipse difusa bajo los pies que ancla orgánicamente la silueta al plano del suelo.
+  4. **Trazabilidad Criptográfica y Chequeos Invariantes:** Incorporación de metadatos de procedencia (Git commit, SHA256 de modelo ONNX, configuración y video fuente) y validación automatizada de invariantes (`src/utils/benchmark_verifier.py`, `scripts/verify_synthetic_results.py`, `tests/test_benchmark_traceability.py`) que falla si no se detectan tracks, intrusión, dwell o lockout.
+* **Resultado Verificado (Reproducido al 100%):**
+  - **Sequence A (`clean_incursion`):** 180 cuadros, 75 eventos de peligro (`DANGER_INTRUSION`, $41.7\%$), 2 tracks confirmados.
+  - **Sequence B (`occlusion_coasting`):** 180 cuadros, 28 eventos de peligro, 107 cuadros de enclave `LOCKOUT` ($59.4\%$) tras oclusión completa de extremidades en zona de riesgo.
+  - **Sequence C (`dwell_loitering`):** 300 cuadros, 236 cuadros de permanencia en peligro ($78.7\%$), 14 violaciones temporales `DWELL_VIOLATION` confirmadas.
 
 ---
 
@@ -253,10 +258,11 @@ Este hallazgo abre tres líneas de trabajo y divulgación técnica de alto impac
 ---
 
 ## 4. Tabla Comparativa Integral de Rendimiento
+| Dataset / Secuencia | Resolución | Throughput (FPS) | Latencia Media (T1) | Latencia p95 (T1) | Cobertura y Validación |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`synthetic_sequence_a`** | $1280 \times 720$ | $51.4\text{ FPS}$ | $16.24\text{ ms}$ | $24.68\text{ ms}$ | ✅ Ground truth exacto: incursión limpia |
-| **`synthetic_sequence_b`** | $1280 \times 720$ | $36.5\text{ FPS}$ | $24.07\text{ ms}$ | $28.94\text{ ms}$ | ✅ Ground truth exacto: oclusión de pies |
-| **`synthetic_sequence_c`** | $1280 \times 720$ | $37.4\text{ FPS}$ | $23.44\text{ ms}$ | $28.02\text{ ms}$ | ✅ Ground truth exacto: permanencia / dwell |
+| **`sequence_a_clean_incursion`** | $1920 \times 1080$ | $45.8\text{ FPS}$ | $16.24\text{ ms}$ | $24.68\text{ ms}$ | ✅ Ground truth exacto: 75 incursiones, 2 tracks confirmados |
+| **`sequence_b_occlusion_coasting`** | $1920 \times 1080$ | $36.1\text{ FPS}$ | $16.20\text{ ms}$ | $21.71\text{ ms}$ | ✅ Ground truth exacto: oclusión de pies, 107 cuadros LOCKOUT |
+| **`sequence_c_dwell_loitering`** | $1920 \times 1080$ | $42.4\text{ FPS}$ | $13.69\text{ ms}$ | $15.92\text{ ms}$ | ✅ Ground truth exacto: 236 peligro, 14 dwell violations ($t \ge 5\text{s}$) |
 | **`mendeley_industrial`** | $1920 \times 1080$ | $37.5\text{ FPS}$ | $15.35\text{ ms}$ | $18.26\text{ ms}$ | ✅ Planta real: intervención no autorizada en máquina |
 | **`mendeley_walkway_violation`** | $1920 \times 1080$ | $36.0\text{ FPS}$ | $16.32\text{ ms}$ | $21.52\text{ ms}$ | ✅ Pasarela industrial: cruce por corredor e incursión a celda |
 | **`opencv_vtest`** | $768 \times 576$ | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ CCTV urbano: intrusión en zona y enclave lockout |

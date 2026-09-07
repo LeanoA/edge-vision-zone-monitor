@@ -5,9 +5,12 @@ End-to-End Demo Orchestrator CLI for Vision-Based Industrial Safety Monitoring.
 """
 
 import argparse
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
+import subprocess
 import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -27,6 +30,44 @@ from src.pipeline.safety_pipeline import LayoutMode, PipelineResult, SafetyPipel
 from src.utils.visualizer import DualVisualizer
 
 
+def compute_file_sha256(filepath: Union[str, Path]) -> str:
+    """Compute SHA256 hexadecimal digest of a local file."""
+    path = Path(filepath)
+    if not path.is_file():
+        return ""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def get_git_traceability() -> Dict[str, Any]:
+    """Retrieve current Git commit, branch, and working tree cleanliness."""
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT), stderr=subprocess.DEVNULL
+        ).decode().strip()
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(REPO_ROOT), stderr=subprocess.DEVNULL
+        ).decode().strip()
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=str(REPO_ROOT), stderr=subprocess.DEVNULL
+        ).decode().strip()
+        return {
+            "commit": commit,
+            "branch": branch,
+            "dirty": len(status) > 0,
+        }
+    except Exception:
+        return {
+            "commit": "unknown",
+            "branch": "unknown",
+            "dirty": False,
+        }
+
+
+
 @dataclass(frozen=True)
 class DemoRunnerConfig:
     """Configuration parameters for the DemoRunner execution."""
@@ -38,6 +79,7 @@ class DemoRunnerConfig:
     realtime: bool = False
     output_video: Optional[Path] = None
     output_events: Optional[Path] = None
+    output_summary: Optional[Path] = None
     conf_threshold: float = 0.5
     max_frames: Optional[int] = None
 
@@ -61,6 +103,7 @@ class DemoSummary:
     event_latency_p95_ms: Optional[float] = None
     event_latency_p99_ms: Optional[float] = None
     state_counts: Dict[str, int] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def format_text(self) -> str:
         """Format summary into a structured terminal report."""
@@ -103,6 +146,19 @@ class DemoSummary:
         for state, count in sorted(self.state_counts.items()):
             pct = (count / max(1, self.total_frames)) * 100.0
             lines.append(f"  • {state:<20}: {count:5d} frames ({pct:5.1f}%)")
+
+        if self.metadata:
+            git_info = self.metadata.get("git", {})
+            model_info = self.metadata.get("model", {})
+            config_info = self.metadata.get("config", {})
+            lines.extend([
+                "-" * 70,
+                "Traceability & Provenance Metadata:",
+                f"  • Generated At (UTC) : {self.metadata.get('generated_at_utc', 'N/A')}",
+                f"  • Git Commit         : {git_info.get('commit', 'N/A')[:8]} (dirty: {git_info.get('dirty', False)})",
+                f"  • Model SHA256       : {model_info.get('sha256', 'N/A')[:16]}...",
+                f"  • Config Source      : {config_info.get('path', 'N/A')}",
+            ])
         lines.append("=" * 70)
         return "\n".join(lines)
 
@@ -318,7 +374,13 @@ class DemoRunner:
             self._end_time = time.perf_counter()
             self.close()
 
-        return self.get_summary()
+        summary = self.get_summary()
+        if self.config.output_summary is not None:
+            self.config.output_summary.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.config.output_summary, "w", encoding="utf-8") as f:
+                json.dump(asdict(summary), f, indent=2)
+
+        return summary
 
     def close(self) -> None:
         """Release video captures, writers, telemetry files, and GUI windows."""
@@ -336,6 +398,30 @@ class DemoRunner:
                 cv2.destroyAllWindows()
             except Exception:
                 pass
+
+    def _build_traceability_metadata(self) -> Dict[str, Any]:
+        """Assemble cryptographic, git, and configuration provenance metadata."""
+        return {
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "git": get_git_traceability(),
+            "command": " ".join(sys.argv),
+            "model": {
+                "path": str(self.config.model_path),
+                "sha256": compute_file_sha256(self.config.model_path),
+            },
+            "config": {
+                "path": str(self.config.config_path),
+                "sha256": compute_file_sha256(self.config.config_path),
+            },
+            "source": {
+                "path": str(self.config.source),
+                "sha256": compute_file_sha256(self.config.source),
+            },
+            "parameters": {
+                "conf_threshold": self.config.conf_threshold,
+                "max_frames": self.config.max_frames,
+            },
+        }
 
     def get_summary(self) -> DemoSummary:
         """Compute and return aggregate latency and safety state statistics."""
@@ -369,6 +455,8 @@ class DemoRunner:
         else:
             evt_mean = evt_p50 = evt_p95 = evt_p99 = None
 
+        metadata = self._build_traceability_metadata()
+
         return DemoSummary(
             total_frames=self._frame_count,
             elapsed_time_s=elapsed,
@@ -386,6 +474,7 @@ class DemoRunner:
             event_latency_p95_ms=evt_p95,
             event_latency_p99_ms=evt_p99,
             state_counts=dict(self._state_counts),
+            metadata=metadata,
         )
 
 
@@ -443,6 +532,12 @@ def parse_args(args: Optional[List[str]] = None) -> DemoRunnerConfig:
         help="Path to save structured safety event telemetry in JSONL format.",
     )
     parser.add_argument(
+        "--output-summary",
+        type=Path,
+        default=None,
+        help="Path to save aggregate execution summary in JSON format.",
+    )
+    parser.add_argument(
         "--conf-threshold",
         type=float,
         default=0.5,
@@ -470,6 +565,7 @@ def parse_args(args: Optional[List[str]] = None) -> DemoRunnerConfig:
         realtime=parsed.realtime,
         output_video=parsed.output_video,
         output_events=parsed.output_events,
+        output_summary=parsed.output_summary,
         conf_threshold=parsed.conf_threshold,
         max_frames=parsed.max_frames,
     )

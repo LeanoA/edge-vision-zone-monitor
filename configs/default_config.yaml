@@ -19,3 +19,23 @@ calibration:
       - [4.0, 0.0]        # Point 2: bottom-right
       - [4.0, 6.0]        # Point 3: top-right
       - [0.0, 6.0]        # Point 4: top-left
+
+zones:
+  name: "IndustrialHazardZone"
+  danger_polygon:
+    - [1.0, 2.0]
+    - [3.0, 2.0]
+    - [3.0, 4.0]
+    - [1.0, 4.0]
+  warning_polygon:
+    - [0.8, 1.8]
+    - [3.2, 1.8]
+    - [3.2, 4.2]
+    - [0.8, 4.2]
+  hysteresis_buffer_m: 0.20
+  n_confirm: 3
+  n_release: 5
+  dwell_warning_s: 2.0
+  dwell_violation_s: 5.0
+  iso_k_speed: 1.6
+

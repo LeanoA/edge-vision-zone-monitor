@@ -1,8 +1,8 @@
 {
   "benchmark": "runtime_engine_showdown",
-  "model": "YOLO11n-Pose",
-  "target_iso_budget_p95_ms": 30.0,
-  "baseline_id": "pytorch_cpu",
+  "input_source": "real_video_frames (openvino_people)",
+  "repetitions": 3,
+  "internal_inference_budget_p95_ms": 30.0,
   "results": [
     {
       "runtime_id": "pytorch_cpu",
@@ -10,35 +10,19 @@
       "provider_or_device": "PyTorch_CPU",
       "warmup": 20,
       "iterations": 100,
-      "mean_ms": 70.796,
-      "min_ms": 68.978,
-      "max_ms": 78.376,
-      "std_ms": 1.963,
-      "variance_ms2": 3.8541,
-      "p50_ms": 69.858,
-      "p95_ms": 75.111,
-      "p99_ms": 75.907,
-      "fps": 14.13,
-      "passed_iso_budget": false,
-      "speedup_vs_baseline": 1.0
-    },
-    {
-      "runtime_id": "pytorch_mps",
-      "display_name": "PyTorch Eager (MPS)",
-      "provider_or_device": "PyTorch_MPS",
-      "warmup": 20,
-      "iterations": 100,
-      "mean_ms": 17.626,
-      "min_ms": 15.92,
-      "max_ms": 22.842,
-      "std_ms": 1.673,
-      "variance_ms2": 2.7976,
-      "p50_ms": 17.0,
-      "p95_ms": 20.817,
-      "p99_ms": 22.754,
-      "fps": 56.74,
-      "passed_iso_budget": true,
-      "speedup_vs_baseline": 4.02
+      "mean_ms": 83.24,
+      "p50_ms": 82.15,
+      "p95_ms": 88.63,
+      "p99_ms": 102.73,
+      "std_ms": 4.22,
+      "fps": 12.0,
+      "speedup_vs_baseline": 1.0,
+      "passed_internal_budget": false,
+      "repetition_means_ms": [
+        80.55,
+        84.53,
+        84.63
+      ]
     },
     {
       "runtime_id": "onnx_cpu",
@@ -46,35 +30,59 @@
       "provider_or_device": "CPUExecutionProvider",
       "warmup": 20,
       "iterations": 100,
-      "mean_ms": 40.536,
-      "min_ms": 37.96,
-      "max_ms": 51.01,
-      "std_ms": 2.039,
-      "variance_ms2": 4.158,
-      "p50_ms": 39.923,
-      "p95_ms": 44.72,
-      "p99_ms": 48.18,
-      "fps": 24.67,
-      "passed_iso_budget": false,
-      "speedup_vs_baseline": 1.75
+      "mean_ms": 43.05,
+      "p50_ms": 42.23,
+      "p95_ms": 47.98,
+      "p99_ms": 60.84,
+      "std_ms": 4.47,
+      "fps": 23.2,
+      "speedup_vs_baseline": 1.93,
+      "passed_internal_budget": false,
+      "repetition_means_ms": [
+        46.08,
+        41.85,
+        41.21
+      ]
+    },
+    {
+      "runtime_id": "pytorch_mps",
+      "display_name": "PyTorch Eager (MPS)",
+      "provider_or_device": "PyTorch_MPS",
+      "warmup": 20,
+      "iterations": 100,
+      "mean_ms": 17.28,
+      "p50_ms": 16.85,
+      "p95_ms": 19.02,
+      "p99_ms": 23.22,
+      "std_ms": 1.68,
+      "fps": 57.9,
+      "speedup_vs_baseline": 4.82,
+      "passed_internal_budget": true,
+      "repetition_means_ms": [
+        17.19,
+        17.22,
+        17.44
+      ]
     },
     {
       "runtime_id": "onnx_coreml",
-      "display_name": "ONNX Runtime (CoreML/ANE)",
+      "display_name": "ONNX Runtime (CoreML)",
       "provider_or_device": "CoreMLExecutionProvider",
       "warmup": 20,
       "iterations": 100,
-      "mean_ms": 15.808,
-      "min_ms": 12.453,
-      "max_ms": 20.887,
-      "std_ms": 1.789,
-      "variance_ms2": 3.2022,
-      "p50_ms": 15.877,
-      "p95_ms": 19.015,
-      "p99_ms": 20.881,
-      "fps": 63.26,
-      "passed_iso_budget": true,
-      "speedup_vs_baseline": 4.48
+      "mean_ms": 16.5,
+      "p50_ms": 16.31,
+      "p95_ms": 18.3,
+      "p99_ms": 20.01,
+      "std_ms": 1.49,
+      "fps": 60.6,
+      "speedup_vs_baseline": 5.04,
+      "passed_internal_budget": true,
+      "repetition_means_ms": [
+        17.68,
+        15.43,
+        16.38
+      ]
     }
   ]
 }

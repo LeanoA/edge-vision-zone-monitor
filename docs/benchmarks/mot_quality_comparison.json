@@ -1,0 +1,34 @@
+{
+  "benchmark": "mot_and_functional_quality_evaluation",
+  "sequence": "sequence_a_clean_incursion",
+  "sequence_a_results": {
+    "total_frames": 180,
+    "danger_frames": 76,
+    "mot_summary": {
+      "total_frames": 180,
+      "total_gt_objects": 180,
+      "total_detections": 185,
+      "total_tp": 179,
+      "total_fp": 6,
+      "total_fn": 1,
+      "total_id_switches": 0,
+      "mota": 0.9611,
+      "idf1": 0.9808,
+      "precision": 0.9676,
+      "recall": 0.9944,
+      "mean_pixel_rmse_px": 0.0,
+      "mean_metric_rmse_cm": 36.49,
+      "max_metric_drift_cm": 76.86,
+      "near_field_rmse_cm": 25.52,
+      "mid_field_rmse_cm": 36.9,
+      "far_field_rmse_cm": 46.86,
+      "ghost_tracks_count": 1
+    },
+    "first_observed_entry_frame": 50,
+    "first_gt_center_entry_frame": 54,
+    "system_trip_frame": 52,
+    "trip_delay_frames": 2,
+    "total_event_latency_ms": 66.67,
+    "functional_pass": true
+  }
+}

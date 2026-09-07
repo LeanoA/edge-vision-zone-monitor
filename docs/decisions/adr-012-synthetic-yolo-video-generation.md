@@ -31,6 +31,7 @@ Se decide implementar una arquitectura de renderizado sintético 2.5D basada en:
 * **100% de Tasa de Detección:** Cobertura total en las 3 secuencias de prueba (`sequence_a`, `sequence_b`, `sequence_c`).
 * **Alta Confianza:** Confianza promedio de YOLO elevada a **0.835 - 0.861**.
 * **Continuidad Temporal:** Cero saltos de vestimenta o silueta; el filtro de Kalman trackea un único sujeto continuo.
+* **Trazabilidad Criptográfica & Invariantes:** Metadatos de ejecución integrados (SHA256, Git commit, perfiles de zona en `configs/datasets/` con `dwell_violation_s: 5.0`) y suite de aserciones automatizadas (`tests/test_benchmark_traceability.py`).
 * **Legibilidad Industrial:** UI ultra-nítida con pastillas de contraste y badges de telemetría desacoplados.
 
 ### Negativas / Mitigaciones

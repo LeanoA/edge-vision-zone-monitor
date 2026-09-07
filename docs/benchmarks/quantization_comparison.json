@@ -1,8 +1,7 @@
 {
   "benchmark": "quantization_and_geometric_precision",
-  "model": "YOLO11n-Pose",
-  "max_metric_tolerance_cm": 15.0,
-  "baseline_id": "fp32",
+  "internal_tolerance_cm": 15.0,
+  "internal_latency_budget_ms": 30.0,
   "results": [
     {
       "model_id": "fp32",
@@ -10,27 +9,35 @@
       "precision": "FP32",
       "size_mb": 11.3,
       "size_reduction_pct": 0.0,
-      "mean_latency_ms": 17.68,
-      "p95_latency_ms": 20.63,
-      "fps": 56.6,
-      "pixel_rmse_px": 0.0,
-      "metric_rmse_cm": 0.0,
-      "max_metric_drift_cm": 0.0,
-      "passed_safety_tolerance": true
+      "mean_latency_ms": 15.79,
+      "p95_latency_ms": 18.03,
+      "fps": 63.3,
+      "pixel_rmse_px": 26.5,
+      "metric_rmse_cm": 33.32,
+      "max_metric_drift_cm": 67.85,
+      "near_field_rmse_cm": 27.05,
+      "mid_field_rmse_cm": 31.5,
+      "far_field_rmse_cm": 41.6,
+      "meets_internal_tolerance": false,
+      "meets_internal_inference_budget": true
     },
     {
       "model_id": "fp16",
       "display_name": "FP16 (Half Precision)",
       "precision": "FP16",
       "size_mb": 5.69,
-      "size_reduction_pct": 49.6,
-      "mean_latency_ms": 42.4,
-      "p95_latency_ms": 44.58,
-      "fps": 23.6,
-      "pixel_rmse_px": 0.31,
-      "metric_rmse_cm": 1.37,
-      "max_metric_drift_cm": 34.88,
-      "passed_safety_tolerance": true
+      "size_reduction_pct": 49.7,
+      "mean_latency_ms": 42.18,
+      "p95_latency_ms": 45.62,
+      "fps": 23.7,
+      "pixel_rmse_px": 26.51,
+      "metric_rmse_cm": 33.35,
+      "max_metric_drift_cm": 66.9,
+      "near_field_rmse_cm": 27.07,
+      "mid_field_rmse_cm": 31.49,
+      "far_field_rmse_cm": 41.67,
+      "meets_internal_tolerance": false,
+      "meets_internal_inference_budget": false
     },
     {
       "model_id": "int8",
@@ -38,13 +45,17 @@
       "precision": "INT8",
       "size_mb": 3.27,
       "size_reduction_pct": 71.1,
-      "mean_latency_ms": 97.85,
-      "p95_latency_ms": 111.8,
-      "fps": 10.2,
-      "pixel_rmse_px": 23.84,
-      "metric_rmse_cm": 156.7,
-      "max_metric_drift_cm": 2179.88,
-      "passed_safety_tolerance": false
+      "mean_latency_ms": 91.58,
+      "p95_latency_ms": 100.04,
+      "fps": 10.9,
+      "pixel_rmse_px": 18.3,
+      "metric_rmse_cm": 18.96,
+      "max_metric_drift_cm": 88.03,
+      "near_field_rmse_cm": 19.2,
+      "mid_field_rmse_cm": 20.06,
+      "far_field_rmse_cm": 17.51,
+      "meets_internal_tolerance": false,
+      "meets_internal_inference_budget": false
     }
   ]
 }
