@@ -151,13 +151,46 @@ def test_mot_functional_safety_invariants():
     seq_a = data["sequence_a_results"]
     assert seq_a["functional_pass"] is True
     assert seq_a["danger_frames"] >= 50
-    assert seq_a["first_observed_entry_frame"] is not None
+    assert seq_a["first_observed_ankle_entry_frame"] is not None
+    assert seq_a["first_gt_centroid_entry_frame"] is not None
     assert seq_a["system_trip_frame"] is not None
-    # Trip frame occurs close to incursion boundary (+- 5 frames)
-    assert abs(seq_a["system_trip_frame"] - seq_a["first_gt_center_entry_frame"]) <= 5
-    assert seq_a["total_event_latency_ms"] > 0.0
+    # Trip frame occurs within 5 frames of boundary crossing
+    assert abs(seq_a["system_trip_frame"] - seq_a["first_gt_centroid_entry_frame"]) <= 5
+    # Formalized reaction profile verification
+    assert seq_a["t_event_reaction_from_ankle_ms"] > 0.0
+    assert seq_a["t_lead_vs_centroid_ms"] < 0.0
 
     mot = seq_a["mot_summary"]
     assert mot["mota"] >= 0.85
     assert mot["idf1"] >= 0.85
     assert mot["total_id_switches"] <= 2
+
+    # PETS2009 crowd and dynamic occlusion tracking ablation
+    assert "pets2009_crowd_results" in data
+    pets = data["pets2009_crowd_results"]
+    assert pets["evaluated_frames"] > 0
+    assert pets["coasting_verified"] is True
+    assert pets["lockout_frames"] > 0
+
+
+def test_coreml_partitioning_evidence():
+    """Verify structured CoreML graph partitioning evidence is tracked."""
+    master_path = BENCH_DIR / "comprehensive_audit_results.json"
+    if not master_path.is_file():
+        pytest.skip("comprehensive_audit_results.json not generated yet.")
+
+    with open(master_path, "r", encoding="utf-8") as fp:
+        master = json.load(fp)
+
+    assert "coreml_partitioning" in master["metadata"]
+    part = master["metadata"]["coreml_partitioning"]
+    assert "onnx_fp32_640" in part
+    assert part["onnx_fp32_640"]["number_of_partitions"] == 5
+    assert part["onnx_fp32_640"]["coreml_supported_nodes"] == 346
+    assert part["onnx_fp32_640"]["cpu_fallback_nodes"] == 8
+
+    assert "onnx_fp16_640" in part
+    assert part["onnx_fp16_640"]["number_of_partitions"] == 6
+
+    assert "onnx_int8_640" in part
+    assert part["onnx_int8_640"]["number_of_partitions"] == 67

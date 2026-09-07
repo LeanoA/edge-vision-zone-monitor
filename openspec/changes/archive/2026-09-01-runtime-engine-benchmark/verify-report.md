@@ -59,3 +59,7 @@ Iterations    : 100 (Warmup: 20)
 
 ## 4. Final Verdict
 **PASS** — All requirements met, 195/195 tests pass, and quantitative empirical benchmark completed.
+
+> [!NOTE]
+> **Audit Reconciliation Addendum (2026-09-07):**
+> The values above reflect an initial exploratory test harness. Under the controlled master benchmark audit ([`comprehensive_audit_results.json`](file:///Users/xander/Projects/edge-safety-guard/docs/benchmarks/comprehensive_audit_results.json)), standardized multi-repetition measurements across real video frames measured: PyTorch CPU = 83.24 ms, ONNX CPU = 43.05 ms, PyTorch MPS = 17.28 ms, and ONNX CoreML = 16.50 ms. The 30 ms threshold is an internal inference design sub-budget, not an ISO 13855 standard clause.

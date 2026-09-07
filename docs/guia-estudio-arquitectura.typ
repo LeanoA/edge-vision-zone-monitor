@@ -1528,17 +1528,17 @@ python scripts/verify_synthetic_results.py
       (FPS)], [Speedup vs CPU], [ISO 13855 ($lt.eq 30 upright("ms")$)],),
     table.hline(),
     [#strong[PyTorch Eager
-    (CPU)]], [`PyTorch_CPU`], [70.80], [69.86], [75.11], [75.91], [±1.96], [14.1
+    (CPU)]], [`PyTorch_CPU`], [77.80], [73.80], [98.32], [120.10], [±10.73], [12.9
     FPS], [1.00x], [❌ FAIL],
     [#strong[PyTorch Eager
-    (MPS)]], [`PyTorch_MPS`], [17.63], [17.00], [20.82], [22.75], [±1.67], [56.7
-    FPS], [#strong[4.02x]], [✅ PASS],
+    (MPS)]], [`PyTorch_MPS`], [20.57], [19.94], [25.01], [27.67], [±2.90], [48.6
+    FPS], [#strong[3.78x]], [✅ PASS],
     [#strong[ONNX Runtime
-    (CPU)]], [`CPUExecutionProvider`], [40.54], [39.92], [44.72], [48.18], [±2.04], [24.7
-    FPS], [#strong[1.75x]], [❌ FAIL],
+    (CPU)]], [`CPUExecutionProvider`], [47.33], [45.24], [60.07], [76.57], [±8.03], [21.1
+    FPS], [#strong[1.64x]], [❌ FAIL],
     [#strong[ONNX Runtime
-    (CoreML/ANE)]], [`CoreMLExecutionProvider`], [15.81], [15.88], [19.02], [20.88], [±1.79], [63.3
-    FPS], [#strong[4.48x]], [✅ PASS],
+    (CoreML)]], [`CoreMLExecutionProvider`], [17.83], [17.76], [20.80], [21.95], [±1.75], [56.1
+    FPS], [#strong[4.36x]], [✅ PASS],
   )]
   , kind: table
   )
@@ -1552,14 +1552,14 @@ python scripts/verify_synthetic_results.py
     align: (left,center,center,center,center,center,center,center,center,),
     table.header([Precision Mode], [Model Size], [Size Reduction], [Mean
       Latency], [Throughput], [Pixel RMSE], [Metric Ground RMSE], [Max
-      Drift], [ISO 13855 Status],),
+      Drift], [Tolerancia Interna],),
     table.hline(),
-    [#strong[FP32 (Single Precision)]], [11.30 MB], [0.0%], [17.68
-    ms], [56.6 FPS], [0.00 px], [0.00 cm], [0.00 cm], [✅ PASS],
-    [#strong[FP16 (Half Precision)]], [5.69 MB], [49.6%], [42.40
-    ms], [23.6 FPS], [0.31 px], [1.37 cm], [34.88 cm], [✅ PASS],
-    [#strong[INT8 (Dynamic Quant)]], [3.27 MB], [71.1%], [97.85
-    ms], [10.2 FPS], [23.84 px], [156.70 cm], [2179.88 cm], [❌ FAIL],
+    [#strong[FP32 (Single Precision)]], [11.30 MB], [0.0%], [17.53
+    ms], [57.1 FPS], [26.50 px], [33.32 cm], [67.85 cm], [Línea Base],
+    [#strong[FP16 (Half Precision)]], [5.69 MB], [49.7%], [43.13
+    ms], [23.2 FPS], [26.51 px], [33.35 cm], [66.90 cm], [Línea Base],
+    [#strong[INT8 (Dynamic Quant)]], [3.27 MB], [71.1%], [89.06
+    ms], [11.2 FPS], [18.30 px], [18.96 cm], [88.03 cm], [❌ FAIL],
   )]
   , kind: table
   )

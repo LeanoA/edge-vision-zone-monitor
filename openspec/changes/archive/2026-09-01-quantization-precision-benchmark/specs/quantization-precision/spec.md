@@ -16,8 +16,9 @@ The quantization evaluation suite MUST profile candidate models against a baseli
 #### Scenario: Evaluating FP16 model precision
 - **GIVEN** an FP32 reference model and an FP16 candidate model
 - **WHEN** precision evaluation executes across validation frames
-- **THEN** $RMSE_{XY}$ SHALL be strictly less than $5.0\text{ cm}$
-- **AND** the inference latency SHALL be equal to or lower than the FP32 baseline.
+- **THEN** $RMSE_{XY}$ drift relative to FP32 SHALL be strictly less than $5.0\text{ cm}$
+- **AND** on architectures with native FP16 execution (e.g., TensorRT on Tensor Cores), inference latency SHALL be equal to or lower than the FP32 baseline
+- **AND** on runtimes requiring dynamic casting or graph partitioning (e.g., CoreML on Apple Silicon), any latency penalty SHALL be explicitly documented, flagged, and audited against the safety budget.
 
 #### Scenario: Evaluating INT8 model precision
 - **GIVEN** an FP32 reference model and an INT8 dynamically quantized model

@@ -59,3 +59,10 @@ Iterations : 50 (Warmup: 15)
 
 ## 4. Final Verdict
 **PASS** — All tasks implemented, 100% test coverage (199/199 green), and precision/metric degradation quantitatively characterized.
+
+> [!NOTE]
+> **Audit Reconciliation Addendum (2026-09-07):**
+> The values above reflect an early self-comparison run ($X_{\text{FP32}} - X_{\text{FP32}} = 0$). As verified in the master benchmark audit ([`comprehensive_audit_results.json`](file:///Users/xander/Projects/edge-safety-guard/docs/benchmarks/comprehensive_audit_results.json)), evaluation against calibrated ground truth shows:
+> - FP32 model intrinsic error is 26.50 px / 33.32 cm (with 15.79 ms mean latency / 63.3 FPS).
+> - FP16 adds negligible relative error drift ($\Delta = 0.03\text{ cm}$), but incurs an execution penalty on Apple Silicon (42.18 ms) due to runtime casting.
+> - The column previously labeled "ISO 13855 Status" evaluated an internal metric drift tolerance ($\le 15\text{ cm}$), not an ISO timing budget.

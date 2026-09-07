@@ -1,6 +1,4 @@
 {
-  "benchmark": "mot_and_functional_quality_evaluation",
-  "sequence": "sequence_a_clean_incursion",
   "sequence_a_results": {
     "total_frames": 180,
     "danger_frames": 76,
@@ -24,11 +22,31 @@
       "far_field_rmse_cm": 46.86,
       "ghost_tracks_count": 1
     },
-    "first_observed_entry_frame": 50,
-    "first_gt_center_entry_frame": 54,
+    "first_observed_ankle_entry_frame": 50,
+    "first_gt_centroid_entry_frame": 54,
     "system_trip_frame": 52,
-    "trip_delay_frames": 2,
-    "total_event_latency_ms": 66.67,
+    "debounce_confirm_frames": 2,
+    "t_event_reaction_from_ankle_ms": 66.67,
+    "t_lead_vs_centroid_ms": -66.67,
+    "reaction_latency_explanation": "Physical reaction time is +66.67 ms relative to the leading ankle crossing (frame 50), matching the N_confirm=3 debounce window; relative to the body centroid (frame 54), the trip occurs 2 frames earlier (-66.67 ms) due to forward stride reach.",
     "functional_pass": true
+  },
+  "pets2009_crowd_results": {
+    "dataset": "pets2009_s2_l1",
+    "evaluated_frames": 200,
+    "elapsed_time_s": 4.05,
+    "wall_throughput_fps": 49.4,
+    "pipeline_mean_t1_ms": 19.67,
+    "pipeline_p95_t1_ms": 20.77,
+    "unique_tracks_observed": 3,
+    "danger_frames": 5,
+    "lockout_frames": 135,
+    "state_distribution": {
+      "SAFE": 21,
+      "WARNING_APPROACH": 39,
+      "DANGER_INTRUSION": 5,
+      "LOCKOUT": 135
+    },
+    "coasting_verified": true
   }
 }

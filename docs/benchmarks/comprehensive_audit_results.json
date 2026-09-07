@@ -1,7 +1,7 @@
 {
   "metadata": {
     "environment": {
-      "timestamp_utc": "2026-09-03T05:57:42.956148+00:00",
+      "timestamp_utc": "2026-09-07T22:10:39.887334+00:00",
       "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
       "processor": "arm",
       "machine": "arm64",
@@ -18,10 +18,10 @@
       "cpu_brand": "Apple M1 Pro",
       "cpu_cores": 8,
       "ram_gb": 16.0,
-      "power_source": "AC Power",
-      "battery_charge": "100%",
+      "power_source": "Battery",
+      "battery_charge": "36%",
       "thermal_warning": "No warning",
-      "git_commit": "05500988cb9235da0ba12491fd7eef98b67a55bd",
+      "git_commit": "ff3c277f45d4511397bd8dfe720fd32275b5c006",
       "git_branch": "main",
       "git_dirty": true
     },
@@ -32,6 +32,54 @@
       "onnx_int8_640": "df961ea2b2520955fb7ba15236848f0955d7ddc6f572ac0b752a9b4613cb9227",
       "onnx_fp32_960": "9dc6e10e1986e5ac13d7771fe8d42b0adea27ea52902d440b0f5a9da0b03c474",
       "onnx_fp16_960": "24204f4ac4c3d297b1e542ac22445ec2467243b5aa7ad2a2244a77545da68be5"
+    },
+    "coreml_partitioning": {
+      "onnx_fp32_640": {
+        "model_file": "models/yolo11n-pose.onnx",
+        "total_nodes_in_graph": 354,
+        "coreml_supported_nodes": 346,
+        "cpu_fallback_nodes": 8,
+        "number_of_partitions": 5,
+        "coreml_node_coverage_pct": 97.74,
+        "fallback_provider": "CPUExecutionProvider"
+      },
+      "onnx_fp16_640": {
+        "model_file": "models/yolo11n-pose-fp16.onnx",
+        "total_nodes_in_graph": 354,
+        "coreml_supported_nodes": 345,
+        "cpu_fallback_nodes": 9,
+        "number_of_partitions": 6,
+        "coreml_node_coverage_pct": 97.46,
+        "fallback_provider": "CPUExecutionProvider"
+      },
+      "onnx_int8_640": {
+        "model_file": "models/yolo11n-pose-int8.onnx",
+        "total_nodes_in_graph": 827,
+        "coreml_supported_nodes": 539,
+        "cpu_fallback_nodes": 288,
+        "number_of_partitions": 67,
+        "coreml_node_coverage_pct": 65.18,
+        "fallback_provider": "CPUExecutionProvider"
+      }
+    },
+    "fps_throughput_taxonomy": {
+      "pure_inference_fps": {
+        "definition": "Theoretical maximum FPS from neural model execution alone (1000 / T_infer)",
+        "onnx_coreml_640": 56.1,
+        "pytorch_mps_640": 48.6,
+        "onnx_cpu_640": 21.1
+      },
+      "pipeline_t1_fps": {
+        "definition": "Theoretical FPS based on total perception pipeline latency T1 (1000 / T1)",
+        "pipeline_coreml_640": 54.3,
+        "pipeline_walkway_640": 53.1,
+        "pipeline_walkway_960": 23.3
+      },
+      "video_stream_throughput_fps": {
+        "definition": "Real wall-clock processing speed including OpenCV frame ingestion, decoding, tracking, and statecharts",
+        "mendeley_walkway_1080p": 49.1,
+        "pets2009_s2_l1_576p": 49.4
+      }
     }
   },
   "experiment_1_runtimes": {
@@ -46,18 +94,18 @@
         "provider_or_device": "PyTorch_CPU",
         "warmup": 20,
         "iterations": 100,
-        "mean_ms": 83.24,
-        "p50_ms": 82.15,
-        "p95_ms": 88.63,
-        "p99_ms": 102.73,
-        "std_ms": 4.22,
-        "fps": 12.0,
+        "mean_ms": 77.8,
+        "p50_ms": 73.8,
+        "p95_ms": 98.32,
+        "p99_ms": 120.1,
+        "std_ms": 10.73,
+        "fps": 12.9,
         "speedup_vs_baseline": 1.0,
         "passed_internal_budget": false,
         "repetition_means_ms": [
-          80.55,
-          84.53,
-          84.63
+          70.46,
+          86.17,
+          76.77
         ]
       },
       {
@@ -66,18 +114,18 @@
         "provider_or_device": "CPUExecutionProvider",
         "warmup": 20,
         "iterations": 100,
-        "mean_ms": 43.05,
-        "p50_ms": 42.23,
-        "p95_ms": 47.98,
-        "p99_ms": 60.84,
-        "std_ms": 4.47,
-        "fps": 23.2,
-        "speedup_vs_baseline": 1.93,
+        "mean_ms": 47.33,
+        "p50_ms": 45.24,
+        "p95_ms": 60.07,
+        "p99_ms": 76.57,
+        "std_ms": 8.03,
+        "fps": 21.1,
+        "speedup_vs_baseline": 1.64,
         "passed_internal_budget": false,
         "repetition_means_ms": [
-          46.08,
-          41.85,
-          41.21
+          50.59,
+          46.6,
+          44.8
         ]
       },
       {
@@ -86,18 +134,18 @@
         "provider_or_device": "PyTorch_MPS",
         "warmup": 20,
         "iterations": 100,
-        "mean_ms": 17.28,
-        "p50_ms": 16.85,
-        "p95_ms": 19.02,
-        "p99_ms": 23.22,
-        "std_ms": 1.68,
-        "fps": 57.9,
-        "speedup_vs_baseline": 4.82,
+        "mean_ms": 20.57,
+        "p50_ms": 19.94,
+        "p95_ms": 25.01,
+        "p99_ms": 27.67,
+        "std_ms": 2.9,
+        "fps": 48.6,
+        "speedup_vs_baseline": 3.78,
         "passed_internal_budget": true,
         "repetition_means_ms": [
-          17.19,
-          17.22,
-          17.44
+          20.7,
+          20.09,
+          20.92
         ]
       },
       {
@@ -106,21 +154,50 @@
         "provider_or_device": "CoreMLExecutionProvider",
         "warmup": 20,
         "iterations": 100,
-        "mean_ms": 16.5,
-        "p50_ms": 16.31,
-        "p95_ms": 18.3,
-        "p99_ms": 20.01,
-        "std_ms": 1.49,
-        "fps": 60.6,
-        "speedup_vs_baseline": 5.04,
+        "mean_ms": 17.83,
+        "p50_ms": 17.76,
+        "p95_ms": 20.8,
+        "p99_ms": 21.95,
+        "std_ms": 1.75,
+        "fps": 56.1,
+        "speedup_vs_baseline": 4.36,
         "passed_internal_budget": true,
         "repetition_means_ms": [
-          17.68,
-          15.43,
-          16.38
+          20.13,
+          16.8,
+          16.55
         ]
       }
-    ]
+    ],
+    "coreml_partitioning": {
+      "onnx_fp32_640": {
+        "model_file": "models/yolo11n-pose.onnx",
+        "total_nodes_in_graph": 354,
+        "coreml_supported_nodes": 346,
+        "cpu_fallback_nodes": 8,
+        "number_of_partitions": 5,
+        "coreml_node_coverage_pct": 97.74,
+        "fallback_provider": "CPUExecutionProvider"
+      },
+      "onnx_fp16_640": {
+        "model_file": "models/yolo11n-pose-fp16.onnx",
+        "total_nodes_in_graph": 354,
+        "coreml_supported_nodes": 345,
+        "cpu_fallback_nodes": 9,
+        "number_of_partitions": 6,
+        "coreml_node_coverage_pct": 97.46,
+        "fallback_provider": "CPUExecutionProvider"
+      },
+      "onnx_int8_640": {
+        "model_file": "models/yolo11n-pose-int8.onnx",
+        "total_nodes_in_graph": 827,
+        "coreml_supported_nodes": 539,
+        "cpu_fallback_nodes": 288,
+        "number_of_partitions": 67,
+        "coreml_node_coverage_pct": 65.18,
+        "fallback_provider": "CPUExecutionProvider"
+      }
+    }
   },
   "experiment_2_precision": {
     "benchmark": "quantization_and_geometric_precision",
@@ -133,9 +210,9 @@
         "precision": "FP32",
         "size_mb": 11.3,
         "size_reduction_pct": 0.0,
-        "mean_latency_ms": 15.79,
-        "p95_latency_ms": 18.03,
-        "fps": 63.3,
+        "mean_latency_ms": 17.53,
+        "p95_latency_ms": 18.79,
+        "fps": 57.1,
         "pixel_rmse_px": 26.5,
         "metric_rmse_cm": 33.32,
         "max_metric_drift_cm": 67.85,
@@ -151,9 +228,9 @@
         "precision": "FP16",
         "size_mb": 5.69,
         "size_reduction_pct": 49.7,
-        "mean_latency_ms": 42.18,
-        "p95_latency_ms": 45.62,
-        "fps": 23.7,
+        "mean_latency_ms": 43.13,
+        "p95_latency_ms": 44.31,
+        "fps": 23.2,
         "pixel_rmse_px": 26.51,
         "metric_rmse_cm": 33.35,
         "max_metric_drift_cm": 66.9,
@@ -169,9 +246,9 @@
         "precision": "INT8",
         "size_mb": 3.27,
         "size_reduction_pct": 71.1,
-        "mean_latency_ms": 91.58,
-        "p95_latency_ms": 100.04,
-        "fps": 10.9,
+        "mean_latency_ms": 89.06,
+        "p95_latency_ms": 93.1,
+        "fps": 11.2,
         "pixel_rmse_px": 18.3,
         "metric_rmse_cm": 18.96,
         "max_metric_drift_cm": 88.03,
@@ -194,12 +271,12 @@
         "resolution": "640x640",
         "precision": "FP32",
         "model_size_mb": 11.3,
-        "preprocess_ms": 0.94,
-        "inference_mean_ms": 18.77,
-        "inference_p95_ms": 20.99,
-        "total_t1_mean_ms": 19.8,
-        "total_t1_p95_ms": 22.35,
-        "pipeline_fps": 46.9,
+        "preprocess_ms": 0.88,
+        "inference_mean_ms": 17.87,
+        "inference_p95_ms": 19.36,
+        "total_t1_mean_ms": 18.84,
+        "total_t1_p95_ms": 20.31,
+        "pipeline_fps": 49.1,
         "total_detections": 83,
         "far_field_detections": 83,
         "meets_internal_inference_budget": true,
@@ -211,12 +288,12 @@
         "resolution": "640x640",
         "precision": "FP16",
         "model_size_mb": 5.69,
-        "preprocess_ms": 0.91,
-        "inference_mean_ms": 42.9,
-        "inference_p95_ms": 47.74,
-        "total_t1_mean_ms": 43.88,
-        "total_t1_p95_ms": 48.74,
-        "pipeline_fps": 22.0,
+        "preprocess_ms": 0.89,
+        "inference_mean_ms": 42.18,
+        "inference_p95_ms": 46.25,
+        "total_t1_mean_ms": 43.14,
+        "total_t1_p95_ms": 47.35,
+        "pipeline_fps": 22.1,
         "total_detections": 76,
         "far_field_detections": 76,
         "meets_internal_inference_budget": false,
@@ -228,12 +305,12 @@
         "resolution": "960x960",
         "precision": "FP32",
         "model_size_mb": 11.58,
-        "preprocess_ms": 1.88,
-        "inference_mean_ms": 40.44,
-        "inference_p95_ms": 43.12,
-        "total_t1_mean_ms": 42.54,
-        "total_t1_p95_ms": 45.34,
-        "pipeline_fps": 22.6,
+        "preprocess_ms": 1.83,
+        "inference_mean_ms": 40.83,
+        "inference_p95_ms": 43.38,
+        "total_t1_mean_ms": 42.86,
+        "total_t1_p95_ms": 45.79,
+        "pipeline_fps": 22.5,
         "total_detections": 639,
         "far_field_detections": 639,
         "meets_internal_inference_budget": false,
@@ -245,12 +322,12 @@
         "resolution": "960x960",
         "precision": "FP16",
         "model_size_mb": 5.85,
-        "preprocess_ms": 1.86,
-        "inference_mean_ms": 95.38,
-        "inference_p95_ms": 110.6,
-        "total_t1_mean_ms": 97.44,
-        "total_t1_p95_ms": 113.47,
-        "pipeline_fps": 10.1,
+        "preprocess_ms": 1.78,
+        "inference_mean_ms": 92.26,
+        "inference_p95_ms": 97.66,
+        "total_t1_mean_ms": 94.22,
+        "total_t1_p95_ms": 99.78,
+        "pipeline_fps": 10.4,
         "total_detections": 624,
         "far_field_detections": 624,
         "meets_internal_inference_budget": false,
@@ -264,50 +341,50 @@
     "stages": [
       {
         "stage_name": "1. Ingest & Frame Capture (Buffer)",
-        "mean_ms": 1.66,
-        "p50_ms": 1.32,
-        "p95_ms": 2.52,
-        "p99_ms": 7.55,
-        "pct_of_t1": 9.2
+        "mean_ms": 1.46,
+        "p50_ms": 1.2,
+        "p95_ms": 1.67,
+        "p99_ms": 7.85,
+        "pct_of_t1": 7.9
       },
       {
         "stage_name": "2. Preprocessing (Letterbox / Norm)",
-        "mean_ms": 0.9,
-        "p50_ms": 0.87,
-        "p95_ms": 1.04,
-        "p99_ms": 1.19,
-        "pct_of_t1": 5.0
+        "mean_ms": 0.87,
+        "p50_ms": 0.86,
+        "p95_ms": 0.93,
+        "p99_ms": 0.96,
+        "pct_of_t1": 4.7
       },
       {
         "stage_name": "3. YOLO11n-Pose Inference (CoreML)",
-        "mean_ms": 16.42,
-        "p50_ms": 17.08,
-        "p95_ms": 18.52,
-        "p99_ms": 19.55,
-        "pct_of_t1": 91.6
+        "mean_ms": 16.97,
+        "p50_ms": 16.98,
+        "p95_ms": 18.74,
+        "p99_ms": 20.48,
+        "pct_of_t1": 92.1
       },
       {
         "stage_name": "4. Detection & Keypoint Parsing",
         "mean_ms": 0.21,
-        "p50_ms": 0.21,
-        "p95_ms": 0.29,
-        "p99_ms": 0.32,
-        "pct_of_t1": 1.2
+        "p50_ms": 0.2,
+        "p95_ms": 0.27,
+        "p99_ms": 0.31,
+        "pct_of_t1": 1.1
       },
       {
         "stage_name": "5. Homography DLT Projection",
         "mean_ms": 0.08,
         "p50_ms": 0.08,
-        "p95_ms": 0.1,
-        "p99_ms": 0.13,
+        "p95_ms": 0.09,
+        "p99_ms": 0.1,
         "pct_of_t1": 0.4
       },
       {
         "stage_name": "6. Kalman Filter & Hungarian MOT",
         "mean_ms": 0.29,
-        "p50_ms": 0.3,
-        "p95_ms": 0.43,
-        "p99_ms": 0.44,
+        "p50_ms": 0.29,
+        "p95_ms": 0.4,
+        "p99_ms": 0.43,
         "pct_of_t1": 1.6
       },
       {
@@ -315,23 +392,23 @@
         "mean_ms": 0.02,
         "p50_ms": 0.01,
         "p95_ms": 0.06,
-        "p99_ms": 0.07,
+        "p99_ms": 0.06,
         "pct_of_t1": 0.1
       },
       {
         "stage_name": "Total Vision Pipeline Latency (T1)",
-        "mean_ms": 17.92,
-        "p50_ms": 18.53,
-        "p95_ms": 20.16,
-        "p99_ms": 21.42,
+        "mean_ms": 18.43,
+        "p50_ms": 18.49,
+        "p95_ms": 20.29,
+        "p99_ms": 21.82,
         "pct_of_t1": 100.0
       },
       {
         "stage_name": "Total End-to-End System (T_system)",
-        "mean_ms": 19.58,
-        "p50_ms": 19.88,
-        "p95_ms": 22.22,
-        "p99_ms": 26.13,
+        "mean_ms": 19.9,
+        "p50_ms": 19.7,
+        "p95_ms": 22.29,
+        "p99_ms": 28.33,
         "pct_of_t1": 100.0
       }
     ]
@@ -360,11 +437,32 @@
         "far_field_rmse_cm": 46.86,
         "ghost_tracks_count": 1
       },
-      "first_gt_entry_frame": 54,
+      "first_observed_ankle_entry_frame": 50,
+      "first_gt_centroid_entry_frame": 54,
       "system_trip_frame": 52,
-      "trip_delay_frames": -2,
-      "total_event_latency_ms": -66.67,
+      "debounce_confirm_frames": 2,
+      "t_event_reaction_from_ankle_ms": 66.67,
+      "t_lead_vs_centroid_ms": -66.67,
+      "reaction_latency_explanation": "Physical reaction time is +66.67 ms relative to the leading ankle crossing (frame 50), matching the N_confirm=3 debounce window; relative to the body centroid (frame 54), the trip occurs 2 frames earlier (-66.67 ms) due to forward stride reach.",
       "functional_pass": true
+    },
+    "pets2009_crowd_results": {
+      "dataset": "pets2009_s2_l1",
+      "evaluated_frames": 200,
+      "elapsed_time_s": 4.05,
+      "wall_throughput_fps": 49.4,
+      "pipeline_mean_t1_ms": 19.67,
+      "pipeline_p95_t1_ms": 20.77,
+      "unique_tracks_observed": 3,
+      "danger_frames": 5,
+      "lockout_frames": 135,
+      "state_distribution": {
+        "SAFE": 21,
+        "WARNING_APPROACH": 39,
+        "DANGER_INTRUSION": 5,
+        "LOCKOUT": 135
+      },
+      "coasting_verified": true
     }
   }
 }

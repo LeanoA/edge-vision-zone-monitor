@@ -10,18 +10,18 @@
       "provider_or_device": "PyTorch_CPU",
       "warmup": 20,
       "iterations": 100,
-      "mean_ms": 83.24,
-      "p50_ms": 82.15,
-      "p95_ms": 88.63,
-      "p99_ms": 102.73,
-      "std_ms": 4.22,
-      "fps": 12.0,
+      "mean_ms": 77.8,
+      "p50_ms": 73.8,
+      "p95_ms": 98.32,
+      "p99_ms": 120.1,
+      "std_ms": 10.73,
+      "fps": 12.9,
       "speedup_vs_baseline": 1.0,
       "passed_internal_budget": false,
       "repetition_means_ms": [
-        80.55,
-        84.53,
-        84.63
+        70.46,
+        86.17,
+        76.77
       ]
     },
     {
@@ -30,18 +30,18 @@
       "provider_or_device": "CPUExecutionProvider",
       "warmup": 20,
       "iterations": 100,
-      "mean_ms": 43.05,
-      "p50_ms": 42.23,
-      "p95_ms": 47.98,
-      "p99_ms": 60.84,
-      "std_ms": 4.47,
-      "fps": 23.2,
-      "speedup_vs_baseline": 1.93,
+      "mean_ms": 47.33,
+      "p50_ms": 45.24,
+      "p95_ms": 60.07,
+      "p99_ms": 76.57,
+      "std_ms": 8.03,
+      "fps": 21.1,
+      "speedup_vs_baseline": 1.64,
       "passed_internal_budget": false,
       "repetition_means_ms": [
-        46.08,
-        41.85,
-        41.21
+        50.59,
+        46.6,
+        44.8
       ]
     },
     {
@@ -50,18 +50,18 @@
       "provider_or_device": "PyTorch_MPS",
       "warmup": 20,
       "iterations": 100,
-      "mean_ms": 17.28,
-      "p50_ms": 16.85,
-      "p95_ms": 19.02,
-      "p99_ms": 23.22,
-      "std_ms": 1.68,
-      "fps": 57.9,
-      "speedup_vs_baseline": 4.82,
+      "mean_ms": 20.57,
+      "p50_ms": 19.94,
+      "p95_ms": 25.01,
+      "p99_ms": 27.67,
+      "std_ms": 2.9,
+      "fps": 48.6,
+      "speedup_vs_baseline": 3.78,
       "passed_internal_budget": true,
       "repetition_means_ms": [
-        17.19,
-        17.22,
-        17.44
+        20.7,
+        20.09,
+        20.92
       ]
     },
     {
@@ -70,19 +70,48 @@
       "provider_or_device": "CoreMLExecutionProvider",
       "warmup": 20,
       "iterations": 100,
-      "mean_ms": 16.5,
-      "p50_ms": 16.31,
-      "p95_ms": 18.3,
-      "p99_ms": 20.01,
-      "std_ms": 1.49,
-      "fps": 60.6,
-      "speedup_vs_baseline": 5.04,
+      "mean_ms": 17.83,
+      "p50_ms": 17.76,
+      "p95_ms": 20.8,
+      "p99_ms": 21.95,
+      "std_ms": 1.75,
+      "fps": 56.1,
+      "speedup_vs_baseline": 4.36,
       "passed_internal_budget": true,
       "repetition_means_ms": [
-        17.68,
-        15.43,
-        16.38
+        20.13,
+        16.8,
+        16.55
       ]
     }
-  ]
+  ],
+  "coreml_partitioning": {
+    "onnx_fp32_640": {
+      "model_file": "models/yolo11n-pose.onnx",
+      "total_nodes_in_graph": 354,
+      "coreml_supported_nodes": 346,
+      "cpu_fallback_nodes": 8,
+      "number_of_partitions": 5,
+      "coreml_node_coverage_pct": 97.74,
+      "fallback_provider": "CPUExecutionProvider"
+    },
+    "onnx_fp16_640": {
+      "model_file": "models/yolo11n-pose-fp16.onnx",
+      "total_nodes_in_graph": 354,
+      "coreml_supported_nodes": 345,
+      "cpu_fallback_nodes": 9,
+      "number_of_partitions": 6,
+      "coreml_node_coverage_pct": 97.46,
+      "fallback_provider": "CPUExecutionProvider"
+    },
+    "onnx_int8_640": {
+      "model_file": "models/yolo11n-pose-int8.onnx",
+      "total_nodes_in_graph": 827,
+      "coreml_supported_nodes": 539,
+      "cpu_fallback_nodes": 288,
+      "number_of_partitions": 67,
+      "coreml_node_coverage_pct": 65.18,
+      "fallback_provider": "CPUExecutionProvider"
+    }
+  }
 }

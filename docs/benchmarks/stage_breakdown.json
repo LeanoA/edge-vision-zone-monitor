@@ -4,50 +4,50 @@
   "stages": [
     {
       "stage_name": "1. Ingest & Frame Capture (Buffer)",
-      "mean_ms": 1.66,
-      "p50_ms": 1.32,
-      "p95_ms": 2.52,
-      "p99_ms": 7.55,
-      "pct_of_t1": 9.2
+      "mean_ms": 1.46,
+      "p50_ms": 1.2,
+      "p95_ms": 1.67,
+      "p99_ms": 7.85,
+      "pct_of_t1": 7.9
     },
     {
       "stage_name": "2. Preprocessing (Letterbox / Norm)",
-      "mean_ms": 0.9,
-      "p50_ms": 0.87,
-      "p95_ms": 1.04,
-      "p99_ms": 1.19,
-      "pct_of_t1": 5.0
+      "mean_ms": 0.87,
+      "p50_ms": 0.86,
+      "p95_ms": 0.93,
+      "p99_ms": 0.96,
+      "pct_of_t1": 4.7
     },
     {
       "stage_name": "3. YOLO11n-Pose Inference (CoreML)",
-      "mean_ms": 16.42,
-      "p50_ms": 17.08,
-      "p95_ms": 18.52,
-      "p99_ms": 19.55,
-      "pct_of_t1": 91.6
+      "mean_ms": 16.97,
+      "p50_ms": 16.98,
+      "p95_ms": 18.74,
+      "p99_ms": 20.48,
+      "pct_of_t1": 92.1
     },
     {
       "stage_name": "4. Detection & Keypoint Parsing",
       "mean_ms": 0.21,
-      "p50_ms": 0.21,
-      "p95_ms": 0.29,
-      "p99_ms": 0.32,
-      "pct_of_t1": 1.2
+      "p50_ms": 0.2,
+      "p95_ms": 0.27,
+      "p99_ms": 0.31,
+      "pct_of_t1": 1.1
     },
     {
       "stage_name": "5. Homography DLT Projection",
       "mean_ms": 0.08,
       "p50_ms": 0.08,
-      "p95_ms": 0.1,
-      "p99_ms": 0.13,
+      "p95_ms": 0.09,
+      "p99_ms": 0.1,
       "pct_of_t1": 0.4
     },
     {
       "stage_name": "6. Kalman Filter & Hungarian MOT",
       "mean_ms": 0.29,
-      "p50_ms": 0.3,
-      "p95_ms": 0.43,
-      "p99_ms": 0.44,
+      "p50_ms": 0.29,
+      "p95_ms": 0.4,
+      "p99_ms": 0.43,
       "pct_of_t1": 1.6
     },
     {
@@ -55,23 +55,23 @@
       "mean_ms": 0.02,
       "p50_ms": 0.01,
       "p95_ms": 0.06,
-      "p99_ms": 0.07,
+      "p99_ms": 0.06,
       "pct_of_t1": 0.1
     },
     {
       "stage_name": "Total Vision Pipeline Latency (T1)",
-      "mean_ms": 17.92,
-      "p50_ms": 18.53,
-      "p95_ms": 20.16,
-      "p99_ms": 21.42,
+      "mean_ms": 18.43,
+      "p50_ms": 18.49,
+      "p95_ms": 20.29,
+      "p99_ms": 21.82,
       "pct_of_t1": 100.0
     },
     {
       "stage_name": "Total End-to-End System (T_system)",
-      "mean_ms": 19.58,
-      "p50_ms": 19.88,
-      "p95_ms": 22.22,
-      "p99_ms": 26.13,
+      "mean_ms": 19.9,
+      "p50_ms": 19.7,
+      "p95_ms": 22.29,
+      "p99_ms": 28.33,
       "pct_of_t1": 100.0
     }
   ]
