@@ -328,7 +328,8 @@ sequenceDiagram
 │   ├── results/                # Videos anotados y telemetría JSONL (ignorado en git)
 │   └── samples/                # Muestras sintéticas deterministas de calibración
 ├── docs/
-│   ├── architecture/           # Diagramas y especificaciones de diseño
+│   ├── architecture/           # Case study de ingeniería, diagramas y diseño
+│   │   └── engineering-case-study.md # Deep dive de arquitectura y decisiones
 │   ├── data/datasets.md        # Especificación y catálogo de datasets empíricos
 │   └── decisions/              # Architecture Decision Records (ADRs)
 │       ├── README.md           # Índice de decisiones
