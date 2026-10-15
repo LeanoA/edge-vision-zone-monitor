@@ -8,10 +8,10 @@
 Para proyectar la posición métrica de un operario mediante homografía planar ($Z_w = 0$), el sistema necesita estimar el punto de contacto físico entre la persona y el suelo ($\hat{p}_{\text{ground}}$).
 
 El baseline razonable en visión computacional **no es el centroide 2D de la caja**, sino el **borde inferior central (*bottom-center*)**:
-$$p_{\text{ground\_bbox}} = \left( \frac{x_{\min} + x_{\max}}{2}, \, y_{\max} \right)$$
+$$p_{\text{ground-bbox}} = \left( \frac{x_{\min} + x_{\max}}{2}, y_{\max} \right)$$
 
 Frente a esto, un modelo de estimación de pose infiere keypoints anatómicos y calcula:
-$$p_{\text{ground\_pose}} = \text{mean}\left(\text{valid\_ankles}(k_{15}, k_{16})\right)$$
+$$p_{\text{ground-pose}} = \operatorname{mean}\left(\text{valid-ankles}(k_{15}, k_{16})\right)$$
 
 Ambos enfoques intentan resolver exactamente el mismo problema geométrico: estimar el punto de apoyo en el suelo. La pregunta de arquitectura no es si Pose es "superior", sino: **¿justifican los keypoints de tobillo el costo computacional adicional frente a usar el borde inferior de una bounding box?**
 

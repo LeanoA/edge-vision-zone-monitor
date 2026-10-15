@@ -9,4 +9,4 @@ The `SafetyPipeline` SHALL measure source-to-pipeline ingestion latency ($T_{\te
 - **GIVEN** a camera frame captured at $t_{\text{capture}}$
 - **WHEN** `SafetyPipeline.process_frame(frame, capture_timestamp=t_capture)` executes at $t_{\text{start}}$
 - **THEN** `PipelineResult.latencies.capture_ms` SHALL measure $(t_{\text{start}} - t_{\text{capture}}) \times 1000.0$
-- **AND** `PipelineResult.latencies.total_system_ms` SHALL equal $\text{capture\_ms} + \text{total\_t1\_ms}$.
+- **AND** `PipelineResult.latencies.total_system_ms` SHALL equal $\text{capture-ms} + \text{total-t1-ms}$.

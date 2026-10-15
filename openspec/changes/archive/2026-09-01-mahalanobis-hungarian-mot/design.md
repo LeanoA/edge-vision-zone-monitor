@@ -7,7 +7,7 @@ Upgrade the data association engine of `MultiTargetKalmanTracker` from naive Euc
    $$d_M^2(i, j) = (\mathbf{z}_j - \hat{\mathbf{x}}_{i,pos})^T S_i^{-1} (\mathbf{z}_j - \hat{\mathbf{x}}_{i,pos})$$
    Apply a statistical gate $\gamma = 9.210$ (the 99th percentile of a $\chi^2$ distribution with 2 degrees of freedom, $\chi^2_2(0.99)$).
 3. **Global Combinatorial Matching**: Construct cost matrix $C \in \mathbb{R}^{N \times M}$ where $C_{i, j} = d_M^2(i, j)$ if $d_M^2(i, j) \le \gamma$ else $10^5$. Solve the optimal bipartite matching problem via `scipy.optimize.linear_sum_assignment(C)` and reject assigned pairs where $C_{i, j} > \gamma$.
-4. **World-Space Spatial Birth NMS**: Before instantiating a new tentative track for an unmatched detection $\mathbf{z}_j$, verify that $\min_{t \in \text{active}} \|\mathbf{z}_j - \mathbf{p}_t\|_2 \ge d_{\text{birth\_min}}$ ($0.6\text{ m}$) and that it is not within $0.6\text{ m}$ of any other track spawned in the same frame.
+4. **World-Space Spatial Birth NMS**: Before instantiating a new tentative track for an unmatched detection $\mathbf{z}_j$, verify that $\min_{t \in \text{active}} \|\mathbf{z}_j - \mathbf{p}_t\|_2 \ge d_{\text{birth-min}}$ ($0.6\text{ m}$) and that it is not within $0.6\text{ m}$ of any other track spawned in the same frame.
 
 ---
 

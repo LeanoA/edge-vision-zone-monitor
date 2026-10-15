@@ -99,7 +99,7 @@ Standard object detection frameworks identify humans through rectangular boundin
 ### The First-Principles Anchor
 Physical intrusion into a machine zone occurs when the operator makes contact with the floor plane ($Z_w = 0$). By utilizing a 17-keypoint pose estimation model (YOLO11n-Pose), we isolate the anatomical ankles:
 
-$$p_{\text{ground}} = \frac{p_{\text{left\_ankle}} + p_{\text{right\_ankle}}}{2}$$
+$$p_{\text{ground}} = \frac{p_{\text{left-ankle}} + p_{\text{right-ankle}}}{2}$$
 
 ```mermaid
 flowchart TD

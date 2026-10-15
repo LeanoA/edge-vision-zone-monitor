@@ -26,5 +26,5 @@ $$v = \text{round}(H_{\text{bev}} - 1 - \text{offset}_y - (Y_w - Y_{\min}) \cdot
 
 ### Velocity Vector Arrow Projection:
 Rather than hardcoding arbitrary pixel delta additions, the forward velocity endpoint is computed through the same transformation:
-$$(u_{\text{end}}, v_{\text{end}}) = \text{world\_to\_bev}(X_w + v_x \cdot \Delta t, Y_w + v_y \cdot \Delta t)$$
+$$(u_{\text{end}}, v_{\text{end}}) = \text{world-to-bev}(X_w + v_x \cdot \Delta t, Y_w + v_y \cdot \Delta t)$$
 with prediction horizon $\Delta t = 0.5\text{ s}$.

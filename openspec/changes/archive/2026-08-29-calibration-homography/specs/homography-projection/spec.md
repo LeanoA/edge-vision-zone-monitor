@@ -71,8 +71,8 @@ The `HomographyManager` MUST provide inverse projection mapping real-world metri
 
 #### Scenario: Round-trip projection consistency
 - **GIVEN** an arbitrary valid pixel coordinate $(u, v)$ within the calibrated camera field of view
-- **WHEN** $(X_w, Y_w) = \text{project\_point}(u, v)$ is computed
-- **AND** $(u', v') = \text{project\_to\_image}(X_w, Y_w)$ is computed
+- **WHEN** $(X_w, Y_w) = \text{project-point}(u, v)$ is computed
+- **AND** $(u', v') = \text{project-to-image}(X_w, Y_w)$ is computed
 - **THEN** the round-trip Euclidean error $\sqrt{(u - u')^2 + (v - v')^2}$ SHALL be less than $1\text{e-3}$ pixels.
 
 ---
@@ -109,7 +109,7 @@ The `HomographyManager` MUST compute the reprojection Root Mean Square Error (RM
 #### Scenario: Calibrated homography meeting reprojection RMSE tolerance
 - **GIVEN** calibration point correspondences with accurate ground truth measurements
 - **WHEN** `HomographyManager` initializes and computes reprojection RMSE:
-$$\text{RMSE} = \sqrt{\frac{1}{N} \sum_{i=1}^N \| \text{project\_point}(u_i, v_i) - (X_i, Y_i) \|^2}$$
+$$\text{RMSE} = \sqrt{\frac{1}{N} \sum_{i=1}^N \| \text{project-point}(u_i, v_i) - (X_i, Y_i) \|^2}$$
 - **THEN** the computed RMSE SHALL be $\le 0.05\text{ m}$ (or the configured threshold)
 - **AND** the RMSE value SHALL be accessible via `manager.reprojection_rmse`.
 

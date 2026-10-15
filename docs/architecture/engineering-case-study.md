@@ -94,7 +94,7 @@ flowchart TD
 
 * **The Problem:** In oblique or elevated industrial camera mountings, an operator reaching into a hazard zone while keeping their feet outside will project a bounding box centroid deep inside the restricted zone. Conversely, an operator standing near the edge leaning away will appear outside. Centroids and bounding box centers do not represent physical support on the floor plane.
 * **The Solution:** The true physical anchor is the floor contact point ($Z_w = 0$). By extracting ankle keypoints (`left_ankle: 15`, `right_ankle: 16`), the contact point is resolved:
-  $$p_{\text{ground}} = \frac{p_{\text{ankle\_left}} + p_{\text{ankle\_right}}}{2}$$
+  $$p_{\text{ground}} = \frac{p_{\text{ankle-left}} + p_{\text{ankle-right}}}{2}$$
 * **Graceful Degradation:** If one ankle is occluded ($\text{conf} < 0.5$), the system falls back to the visible ankle. If both ankles are occluded by low machinery or pallets, it triggers confidence-penalized bounding box bottom-center fallback followed by Kalman open-loop coasting ([ADR-007](file:///Users/xander/Projects/edge-safety-guard/docs/decisions/adr-007-occlusion-handling-confidence-propagation.md)).
 
 ![Ground Anchor Comparison: Ankle Contact vs BBox Centroid Deformation](../figures/bbox_vs_ankles.png)
@@ -181,7 +181,7 @@ stateDiagram-v2
   1. *Mahalanobis Distance Gating:* Evaluates dynamic position covariance $S = P + R$, expanding the search gate along the track's velocity vector $\vec{v}$:
      $$d_M^2 = (\mathbf{z} - \hat{\mathbf{z}})^T S^{-1} (\mathbf{z} - \hat{\mathbf{z}}) \le \chi^2_2(0.99) = 9.210$$
   2. *Global Combinatorial Assignment:* Solves the assignment matrix via the Munkres / Hungarian algorithm (`scipy.optimize.linear_sum_assignment`) in $\mathcal{O}(N^3)$ within $0.017\text{ ms}$ for 10 workers.
-  3. *World-Space Spatial Birth NMS:* Rejects new track creation if a metric detection falls within $d_{\text{birth\_min}} = 0.6\text{ m}$ of any existing track or concurrent birth proposal.
+  3. *World-Space Spatial Birth NMS:* Rejects new track creation if a metric detection falls within $d_{\text{birth-min}} = 0.6\text{ m}$ of any existing track or concurrent birth proposal.
 
 ![Mahalanobis Innovation Gating Ellipsoid](../figures/kalman_mahalanobis.png)
 

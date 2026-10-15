@@ -42,7 +42,7 @@ Se resuelve la asignación biunívoca global mínima mediante `scipy.optimize.li
 
 ### 3. World-Space Spatial Birth Non-Maximum Suppression (NMS)
 Se introduce una regla de no-nacimiento en el espacio métrico del piso:
-* Ninguna detección no asignada $\mathbf{z}_j$ puede instanciar un nuevo track tentativo si su distancia euclidiana al plano de suelo respecto a cualquier track activo/confirmado es menor a $d_{\text{birth\_min}} = 0.6\text{ m}$ (radio del cuerpo humano según ISO 13855).
+* Ninguna detección no asignada $\mathbf{z}_j$ puede instanciar un nuevo track tentativo si su distancia euclidiana al plano de suelo respecto a cualquier track activo/confirmado es menor a $d_{\text{birth-min}} = 0.6\text{ m}$ (radio del cuerpo humano según ISO 13855).
 * Se suprimen también propuestas concurrentes huérfanas en el mismo cuadro separadas por menos de $0.6\text{ m}$.
 
 ---

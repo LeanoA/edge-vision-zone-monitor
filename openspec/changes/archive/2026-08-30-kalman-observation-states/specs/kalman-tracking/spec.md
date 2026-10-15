@@ -7,11 +7,11 @@ The `MetricKalmanFilter` and `Track` domain models MUST formalize the epistemolo
 1. **`ObservationStatus` Enumeration**: The system MUST define an enumeration `ObservationStatus(str, Enum)` with three discrete states:
    - `OBSERVED`: Supported by direct sensory measurement in the current frame ($k = 0$, where $k$ is the consecutive missed frame count). High epistemic certainty.
    - `PREDICTED`: Kinematically extrapolated via dead reckoning within the safe bounded horizon where divergence remains contained within the spatial hysteresis margin ($\Delta d = 200\text{ mm}$), specifically $1 \le k \le 3$ consecutive missed frames ($33.3\text{ ms} \le t \le 100.0\text{ ms}$ at $30\text{ fps}$).
-   - `STALE`: Degraded dead reckoning nearing track deletion where kinematic maneuver divergence exceeds the spatial hysteresis margin ($4 \le k \le \text{max\_missed}$, default $4 \le k \le 5$). Position estimates are speculative.
+   - `STALE`: Degraded dead reckoning nearing track deletion where kinematic maneuver divergence exceeds the spatial hysteresis margin ($4 \le k \le \text{max-missed}$, default $4 \le k \le 5$). Position estimates are speculative.
 2. **Track Epistemological Status**: The `Track` class MUST expose an `observation_status -> ObservationStatus` property returning:
    - `ObservationStatus.OBSERVED` when `self.missed_count == 0`
-   - `ObservationStatus.PREDICTED` when $1 \le \text{self.missed\_count} \le 3$
-   - `ObservationStatus.STALE` when $\text{self.missed\_count} \ge 4$.
+   - `ObservationStatus.PREDICTED` when $1 \le \text{self.missed-count} \le 3$
+   - `ObservationStatus.STALE` when $\text{self.missed-count} \ge 4$.
 3. **Re-detection Transition**: Upon association with a fresh measurement, `missed_count` MUST immediately reset to 0, instantly transitioning `observation_status` back to `ObservationStatus.OBSERVED`.
 
 #### Scenario: Fresh observation yields OBSERVED status
@@ -67,8 +67,8 @@ The `Track` class MUST encapsulate metric uncertainty, provenance, and epistemol
    - When a track misses association and enters or remains in `COASTING` state (`mark_missed`):
      - `source` MUST be set to `AnchorSource.TRACKER_PREDICTED`.
      - `confidence` MUST decay exponentially as a function of consecutive missed frames:
-       $$c_k = c_{\text{last\_confirmed}} \times (0.85)^{\text{missed\_count}}$$
-       where $c_{\text{last\_confirmed}}$ is the confidence value at the last successful measurement update, and $\text{missed\_count} \in [1, \text{max\_missed}]$.
+       $$c_k = c_{\text{last-confirmed}} \times (0.85)^{\text{missed-count}}$$
+       where $c_{\text{last-confirmed}}$ is the confidence value at the last successful measurement update, and $\text{missed-count} \in [1, \text{max-missed}]$.
 4. **Confidence Recovery upon Re-detection**:
    - When a coasting track is re-associated with a new measurement, `missed_count` MUST reset to 0, `confidence` MUST restore to the incoming measurement's confidence $c_{\text{meas}}$, and `source` MUST be updated to the measurement's `AnchorSource`.
 5. **Backward Compatibility**: `Track.position` MUST continue returning `Tuple[float, float]` and `Track.velocity` MUST continue returning `Tuple[float, float]`. `MultiTargetKalmanTracker.update` MUST accept both legacy 2D coordinate arrays and typed `PositionEstimate` sequences.

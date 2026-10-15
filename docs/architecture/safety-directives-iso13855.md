@@ -36,7 +36,7 @@ Donde:
 Para anular las falsas alarmas provocadas por la inclinación cenital o angular de la cámara enfrente de operadores cuyos torsos o cabezas intersectan la zona pero cuyos pies están fuera:
 * **Prohibición:** Se prohíbe el centroide de la caja delimitadora (*bounding box centroid*) o la base central de la caja 2D.
 * **Punto de Contacto Real:**
-  $$p_{\text{ground}} = \frac{p_{\text{ankle\_left}} + p_{\text{ankle\_right}}}{2}$$
+  $$p_{\text{ground}} = \frac{p_{\text{ankle-left}} + p_{\text{ankle-right}}}{2}$$
   Si un tobillo está ocluido ($conf < 0.3$), se adopta el tobillo visible con mayor confianza. Si ambos están ocluidos temporalmente, el Filtro Kalman 2D extrapola la trayectoria en espacio métrico.
 
 ---

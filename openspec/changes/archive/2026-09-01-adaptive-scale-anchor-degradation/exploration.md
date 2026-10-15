@@ -10,7 +10,7 @@ However:
 ## Affected Areas
 - `src/pipeline/safety_pipeline.py`:
   - Enhance `extract_ground_anchor` with `min_ankle_bbox_height: float = 120.0` (configurable parameter).
-  - When $h_{\text{bbox}} < \text{min\_ankle\_bbox\_height}$, dynamically route anchor selection to `BBOX_BOTTOM` (Tier 3) with confidence proportional to detection score.
+  - When $h_{\text{bbox}} < \text{min-ankle-bbox-height}$, dynamically route anchor selection to `BBOX_BOTTOM` (Tier 3) with confidence proportional to detection score.
 - `src/utils/visualizer.py`:
   - Color-code perspective ground anchor markers and badges based on `AnchorSource`:
     - `ANKLES_DUAL`: Cyan `(255, 255, 0)` marker + badge.

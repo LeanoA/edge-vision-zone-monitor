@@ -26,8 +26,8 @@ $$v(Y_w) = \text{round}\left(H_{\text{bev}} - 1 - \text{offset}_y - (Y_w - Y_{\m
 
 For a track at position $\mathbf{p} = [X_w, Y_w]$ with velocity $\mathbf{v} = [v_x, v_y]$:
 
-$$(u_{\text{start}}, v_{\text{start}}) = \text{world\_to\_bev}(X_w, Y_w)$$
-$$(u_{\text{end}}, v_{\text{end}}) = \text{world\_to\_bev}(X_w + v_x \cdot \Delta t, Y_w + v_y \cdot \Delta t)$$
+$$(u_{\text{start}}, v_{\text{start}}) = \text{world-to-bev}(X_w, Y_w)$$
+$$(u_{\text{end}}, v_{\text{end}}) = \text{world-to-bev}(X_w + v_x \cdot \Delta t, Y_w + v_y \cdot \Delta t)$$
 
 with forward projection horizon $\Delta t = 0.5\text{ s}$.
 

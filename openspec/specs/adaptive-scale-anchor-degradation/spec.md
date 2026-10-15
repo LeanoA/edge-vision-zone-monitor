@@ -7,11 +7,11 @@ The pipeline MUST support scale-adaptive ground anchor extraction based on bound
 
 1. **Parameter Definition**:
    - `extract_ground_anchor` and `SafetyPipeline` MUST support `min_ankle_bbox_height: float = 0.0`.
-   - When `min_ankle_bbox_height > 0.0` and a valid bounding box `(x1, y1, x2, y2)` has height $(y2 - y1) < \text{min\_ankle\_bbox\_height}$, the extractor MUST bypass Tier 1 (`ANKLES_DUAL`) and Tier 2 (`ANKLE_SINGLE`) and fallback directly to Tier 3 (`BBOX_BOTTOM`).
-   - When $(y2 - y1) \ge \text{min\_ankle\_bbox\_height}$ (or `min_ankle_bbox_height == 0.0`), the extractor MUST evaluate Tier 1 and Tier 2 normally.
+   - When `min_ankle_bbox_height > 0.0` and a valid bounding box `(x1, y1, x2, y2)` has height $(y2 - y1) < \text{min-ankle-bbox-height}$, the extractor MUST bypass Tier 1 (`ANKLES_DUAL`) and Tier 2 (`ANKLE_SINGLE`) and fallback directly to Tier 3 (`BBOX_BOTTOM`).
+   - When $(y2 - y1) \ge \text{min-ankle-bbox-height}$ (or `min_ankle_bbox_height == 0.0`), the extractor MUST evaluate Tier 1 and Tier 2 normally.
 
 2. **Confidence Computation**:
-   - When `BBOX_BOTTOM` is selected via scale degradation, the confidence MUST be computed as $\text{det\_score} \times 0.40$.
+   - When `BBOX_BOTTOM` is selected via scale degradation, the confidence MUST be computed as $\text{det-score} \times 0.40$.
 
 3. **Visualizer Palette and Provenance Badging**:
    - `DualVisualizer` in perspective mode MUST render ground anchors using distinct color coding:

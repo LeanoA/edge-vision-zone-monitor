@@ -216,9 +216,9 @@ The source-specific measurement noise covariance $\mathbf{R}_{\text{source}}$ sc
 $$\mathbf{R}_{\text{source}} = \alpha_{\text{source}} \cdot \mathbf{R}_0$$
 
 $$\alpha_{\text{source}} = \begin{cases}
-1.0 & \text{for } \text{ANKLES\_DUAL} \implies \mathbf{R}_{\text{dual}} = \begin{bmatrix} 0.05 & 0 \\ 0 & 0.05 \end{bmatrix}\text{ m}^2 \\
-2.0 & \text{for } \text{ANKLE\_SINGLE} \implies \mathbf{R}_{\text{single}} = \begin{bmatrix} 0.10 & 0 \\ 0 & 0.10 \end{bmatrix}\text{ m}^2 \\
-5.0 & \text{for } \text{BBOX\_BOTTOM} \implies \mathbf{R}_{\text{bbox}} = \begin{bmatrix} 0.25 & 0 \\ 0 & 0.25 \end{bmatrix}\text{ m}^2
+1.0 & \text{for } \text{ANKLES-DUAL} \implies \mathbf{R}_{\text{dual}} = \begin{bmatrix} 0.05 & 0 \\ 0 & 0.05 \end{bmatrix}\text{ m}^2 \\
+2.0 & \text{for } \text{ANKLE-SINGLE} \implies \mathbf{R}_{\text{single}} = \begin{bmatrix} 0.10 & 0 \\ 0 & 0.10 \end{bmatrix}\text{ m}^2 \\
+5.0 & \text{for } \text{BBOX-BOTTOM} \implies \mathbf{R}_{\text{bbox}} = \begin{bmatrix} 0.25 & 0 \\ 0 & 0.25 \end{bmatrix}\text{ m}^2
 \end{cases}$$
 
 #### Impact on Kalman Gain and Innovation Shock
@@ -243,7 +243,7 @@ $$c_k = c_{\text{last}} \cdot \left( \lambda_{\text{decay}} \right)^k$$
 
 where:
 - $c_{\text{last}} \in [0.0, 1.0]$ is the confidence score recorded at the most recent physical measurement update.
-- $k = \text{missed\_count} \in [1, \text{max\_missed}]$.
+- $k = \text{missed-count} \in [1, \text{max-missed}]$.
 - $\lambda_{\text{decay}} = 0.85$ is the per-frame kinematic persistence factor.
 
 #### Decay Trajectory over Coasting Horizon ($N_{\text{max}} = 5$ frames at 30 FPS, $\Delta t = 166.7\text{ ms}$):
@@ -258,7 +258,7 @@ where:
 | **5 (Max Coast)** | $0.444$ | $0.444$ | $0.177$ |
 | **6 (Deleted)** | $0.377$ | *Track Pruned* | *Track Pruned* |
 
-Upon receiving a valid measurement update, $c_k$ instantly restores to the newly measured source confidence ($c_{\text{meas}}$) and $\text{missed\_count}$ resets to 0.
+Upon receiving a valid measurement update, $c_k$ instantly restores to the newly measured source confidence ($c_{\text{meas}}$) and $\text{missed-count}$ resets to 0.
 
 ---
 

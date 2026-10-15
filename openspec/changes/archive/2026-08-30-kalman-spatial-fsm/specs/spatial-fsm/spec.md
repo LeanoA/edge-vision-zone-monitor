@@ -152,7 +152,7 @@ If $v_{\text{approach}} \ge K_{\text{fast}}$ (where $K_{\text{fast}} = 1.6\text{
 ---
 
 ### Requirement: Warning Zone Dwell Time Tracking
-The `SpatialFSM` MUST track the cumulative dwell time $t_{\text{dwell}}$ (in seconds) of any target residing continuously within the warning zone (outside $P_{\text{danger}}$ but inside $P_{\text{release}}$ or within configured warning perimeter). If $t_{\text{dwell}} \ge T_{\text{dwell\_warn}}$ (default: $3.0\text{ s}$), the FSM MUST elevate the warning telemetry and emit a dwell warning alert.
+The `SpatialFSM` MUST track the cumulative dwell time $t_{\text{dwell}}$ (in seconds) of any target residing continuously within the warning zone (outside $P_{\text{danger}}$ but inside $P_{\text{release}}$ or within configured warning perimeter). If $t_{\text{dwell}} \ge T_{\text{dwell-warn}}$ (default: $3.0\text{ s}$), the FSM MUST elevate the warning telemetry and emit a dwell warning alert.
 
 #### Scenario: Dwell time accumulation within warning zone
 - **GIVEN** a target located in the warning zone between $P_{\text{danger}}$ and $P_{\text{release}}$
@@ -161,7 +161,7 @@ The `SpatialFSM` MUST track the cumulative dwell time $t_{\text{dwell}}$ (in sec
 - **AND** telemetry payload SHALL report `dwell_time: 2.0`.
 
 #### Scenario: Dwell warning threshold escalation
-- **GIVEN** configured dwell warning threshold $T_{\text{dwell\_warn}} = 3.0\text{ s}$
+- **GIVEN** configured dwell warning threshold $T_{\text{dwell-warn}} = 3.0\text{ s}$
 - **WHEN** a target dwells in the warning zone for $t_{\text{dwell}} \ge 3.0\text{ s}$
 - **THEN** the FSM SHALL set `dwell_alarm = True` in the telemetry payload
 - **AND** state SHALL indicate prolonged dwell warning.
@@ -175,7 +175,7 @@ The `SpatialFSM` MUST track the cumulative dwell time $t_{\text{dwell}}$ (in sec
 
 ### Requirement: Industrial Fail-Safe Output Contract and Real-Time Latency
 The `SpatialFSM` MUST return a strictly typed output tuple or object `(trip: bool, status: str, telemetry: dict)` on every evaluation cycle:
-1. `trip` (boolean): MUST be `True` if state $\in \{\text{DANGER\_INTRUSION}, \text{FAULT}, \text{LOCKOUT}\}$. MUST be `False` if state $\in \{\text{SAFE}, \text{WARNING\_APPROACH}, \text{MUTED}\}$.
+1. `trip` (boolean): MUST be `True` if state $\in \{\text{DANGER-INTRUSION}, \text{FAULT}, \text{LOCKOUT}\}$. MUST be `False` if state $\in \{\text{SAFE}, \text{WARNING-APPROACH}, \text{MUTED}\}$.
 2. `status` (string): MUST correspond to the current state name string.
 3. `telemetry` (dictionary): MUST include `timestamp`, `state`, `trip`, `active_tracks`, `min_distance_to_danger`, `max_approach_speed`, `debounce_confirm_count`, `debounce_release_count`, and `dwell_times`.
 4. Latency: The total execution time of `fsm.step()` MUST be strictly less than $1.0\text{ ms}$ on standard edge CPU hardware for up to 10 simultaneous targets.

@@ -6,7 +6,7 @@
 The `MultiTargetKalmanTracker` MUST manage simultaneous tracking of multiple targets across consecutive video frames using globally optimal bipartite matching and Bayesian validation gating:
 1. **Validation Gating**: Candidate detections MUST be evaluated against each active track using the squared Mahalanobis distance with innovation covariance $S_i = P_{i[:2, :2]} + R$. Detections exceeding the validation gate threshold $\gamma = 9.210$ ($\chi^2$ distribution with 2 degrees of freedom at $99\%$ confidence) MUST be excluded from association with track $i$.
 2. **Global Assignment**: Association between active track predictions and incoming detections MUST be computed globally using the Hungarian algorithm (Munkres / `scipy.optimize.linear_sum_assignment`), minimizing the sum of squared Mahalanobis distances across all assigned pairs.
-3. **World-Space Spatial Birth Non-Maximum Suppression**: Unmatched detections MUST NOT instantiate new tracks if their metric Euclidean distance to any existing active or confirmed track is less than $d_{\text{birth\_min}} = 0.6\text{ m}$, nor if they are within $0.6\text{ m}$ of another track spawned in the same frame.
+3. **World-Space Spatial Birth Non-Maximum Suppression**: Unmatched detections MUST NOT instantiate new tracks if their metric Euclidean distance to any existing active or confirmed track is less than $d_{\text{birth-min}} = 0.6\text{ m}$, nor if they are within $0.6\text{ m}$ of another track spawned in the same frame.
 
 #### Scenario: Mahalanobis validation gate rejects statistically incompatible detections
 - **GIVEN** an active track with state covariance $P_{pos} = \text{diag}([0.01, 0.01])$ and measurement noise $R = \text{diag}([0.05, 0.05])$ ($S = \text{diag}([0.06, 0.06])$)

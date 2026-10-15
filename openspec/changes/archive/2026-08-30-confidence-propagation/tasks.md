@@ -45,7 +45,7 @@ Chain strategy: none
 - [x] 2.3 (RED) Write unit tests in `tests/test_kalman.py` for `Track` properties and kinematic confidence decay:
   - Verify initial track provenance attributes: `track.source == AnchorSource.ANKLES_DUAL`, `track.confidence == 1.0` (or passed initial values).
   - Verify typed property `track.estimate -> PositionEstimate` exposing metric position `xy_m`, `confidence`, `source`, and 2x2 submatrix `P[:2, :2]`.
-  - Verify exponential confidence decay during coasting in `track.mark_missed()`: transition `track.source` to `AnchorSource.TRACKER_PREDICTED`, decay confidence $c_k = c_{\text{last\_confirmed}} \times 0.85^k$ across consecutive missed frames, and verify covariance inflation.
+  - Verify exponential confidence decay during coasting in `track.mark_missed()`: transition `track.source` to `AnchorSource.TRACKER_PREDICTED`, decay confidence $c_k = c_{\text{last-confirmed}} \times 0.85^k$ across consecutive missed frames, and verify covariance inflation.
   - Verify confidence restoration on re-detection: `missed_count` reset to 0, confidence updated to measurement confidence $c_{\text{meas}}$, source updated to incoming `AnchorSource`, and covariance trace strictly reduced.
 - [x] 2.4 (GREEN) Extend `Track` in `src/core/kalman_filter.py`:
   - Add private state attributes `_source: AnchorSource`, `_confidence: float`, `_last_confirmed_confidence: float`.

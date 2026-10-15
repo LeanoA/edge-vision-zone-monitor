@@ -47,7 +47,7 @@
 
 | Design Decision | Implementation Match | Coherence Status |
 | :--- | :--- | :--- |
-| Pixel height thresholding $(y2 - y1) < \text{min\_ankle\_bbox\_height}$ | Implemented directly in `extract_ground_anchor` | COHERENT |
+| Pixel height thresholding $(y2 - y1) < \text{min-ankle-bbox-height}$ | Implemented directly in `extract_ground_anchor` | COHERENT |
 | Default `0.0` preserves backward compatibility | Preserved across all modules | COHERENT |
 | Distinct BGR palette per `AnchorSource` | `ANCHOR_COLORS` in `src/utils/visualizer.py` | COHERENT |
 

@@ -64,6 +64,8 @@ ENV/
 .atl/
 .pi/
 .windsurf/
+.agents/
+skills-lock.json
 
 # Local Notes & Scratchpads
 *.local.md

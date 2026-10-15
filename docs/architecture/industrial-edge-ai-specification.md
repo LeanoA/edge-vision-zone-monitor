@@ -123,7 +123,7 @@ Latency Profiling (Medición T1 de fin a fin según ISO 13855)
 
 Se prohíbe el uso del centroide de cajas 2D debido a que la inclinación angular de la cámara proyecta el torso o la cabeza dentro de la zona peligrosa cuando los pies están en zona segura. El sistema extrae los keypoints de los tobillos (`left_ankle: 15`, `right_ankle: 16`) y calcula su punto medio:
 
-$$p_{\text{ground}} = \frac{p_{\text{ankle\_left}} + p_{\text{ankle\_right}}}{2}$$
+$$p_{\text{ground}} = \frac{p_{\text{ankle-left}} + p_{\text{ankle-right}}}{2}$$
 
 Dicho punto se proyecta al plano métrico mediante la matriz de homografía $H \in \mathbb{R}^{3 \times 3}$:
 

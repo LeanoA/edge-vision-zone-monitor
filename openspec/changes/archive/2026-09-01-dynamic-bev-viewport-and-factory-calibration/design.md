@@ -9,7 +9,7 @@
 ## 1. Dynamic Metric Boundary Computation
 
 Let $S_{\text{geom}}$ be the set of all $2D$ metric coordinates defining the monitored spatial footprint:
-$$S_{\text{geom}} = P_{\text{danger}} \cup P_{\text{release}} \cup P_{\text{calib\_world}}$$
+$$S_{\text{geom}} = P_{\text{danger}} \cup P_{\text{release}} \cup P_{\text{calib-world}}$$
 
 The minimum bounding envelope is determined by:
 $$X_{\min} = \min_{(x, y) \in S_{\text{geom}}} x, \quad X_{\max} = \max_{(x, y) \in S_{\text{geom}}} x$$

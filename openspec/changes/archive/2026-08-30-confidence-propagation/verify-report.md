@@ -97,7 +97,7 @@ The following matrix maps all scenarios specified in `openspec/changes/confidenc
 
 3. **Kinematic Confidence Decay ($0.85^{\text{missed}}$)**:
    - Verified in `Track.mark_missed()`:
-     $$\text{confidence} = \text{last\_confirmed\_confidence} \times (0.85)^{\text{missed\_count}}$$
+     $$\text{confidence} = \text{last-confirmed-confidence} \times (0.85)^{\text{missed-count}}$$
    - Transition to `AnchorSource.TRACKER_PREDICTED` verified.
 
 4. **Euclidean Spatial Gating ($1.0\text{ m}$)**:

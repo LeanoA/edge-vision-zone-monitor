@@ -170,7 +170,7 @@ Durante la integración y evaluación de estos datasets, se identificaron y reso
 * **Solución Implementada ([ADR-011](../decisions/adr-011-mahalanobis-hungarian-mot.md)):**
   1. **Compuerta Elipsoidal Bayesiana de Mahalanobis ($\chi^2_2 \le 9.210$):** Incorpora la covarianza de innovación $S_i = P_{i[:2,:2]} + R$ adaptando el área de búsqueda según la incertidumbre cinemática y la velocidad inercial.
   2. **Asignación Global Óptima (Algoritmo Húngaro / Munkres):** Minimización combinatoria global vía `scipy.optimize.linear_sum_assignment` resolviendo cruces sin *ID switching*.
-  3. **World-Space Spatial Birth NMS ($d_{\text{birth\_min}} = 0.6\text{ m}$):** Supresión estricta de propuestas espurias a menos de $0.6\text{ m}$ de tracks confirmados o nacimientos concurrentes.
+  3. **World-Space Spatial Birth NMS ($d_{\text{birth-min}} = 0.6\text{ m}$):** Supresión estricta de propuestas espurias a menos de $0.6\text{ m}$ de tracks confirmados o nacimientos concurrentes.
 
 ---
 

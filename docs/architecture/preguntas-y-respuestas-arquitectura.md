@@ -54,7 +54,7 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
 ### P6: ¿Por qué no usamos el borde inferior de una Bounding Box (Bottom-Center) y qué costos acarrea Pose?
 * **Fundamento Técnico y Trade-Off:**
   * **El Baseline de Detección:** El enfoque tradicional de bajo costo no es el centroide 2D (que proyecta el torso), sino la base central de la caja delimitadora:
-    $$p_{\text{ground\_bbox}} = \left( \frac{x_{\min} + x_{\max}}{2}, \, y_{\max} \right)$$
+    $$p_{\text{ground-bbox}} = \left( \frac{x_{\min} + x_{\max}}{2}, y_{\max} \right)$$
   * **Por qué Pose ofrece mejor semántica:** En cámaras con ángulo cenital, el punto medio de los tobillos detecta exactamente el apoyo físico de las extremidades inferiores en el piso ($Z_w = 0$). Si el operario se inclina, estira un brazo o manipula una herramienta larga, el bounding box crece lateralmente o hacia abajo de forma artificial, mientras que los tobillos permanecen anclados al suelo real.
   * **El Costo y los Riesgos Ocultos de Pose:**
     1. *Costo Computacional:* Un modelo de Pose tiene mayor número de capas/canales de salida, requiriendo más cómputo y memoria que un detector simple de cajas.

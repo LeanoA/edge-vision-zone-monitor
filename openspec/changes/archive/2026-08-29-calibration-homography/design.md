@@ -70,7 +70,7 @@ This eliminates Python-level loops, executing in $< 0.05\text{ ms}$ for dozens o
 Calibration quality is evaluated against ground-truth pairs $(u_i, v_i) \leftrightarrow (X_i, Y_i)$ via Root-Mean-Square Error in world metric space (meters):
 
 $$\text{RMSE}_{\text{world}} = \sqrt{\frac{1}{N} \sum_{i=1}^N \left( (X_i - \hat{X}_i)^2 + (Y_i - \hat{Y}_i)^2 \right)}$$
-where $(\hat{X}_i, \hat{Y}_i) = \text{project\_point}(u_i, v_i)$.
+where $(\hat{X}_i, \hat{Y}_i) = \text{project-point}(u_i, v_i)$.
 
 Under safety directives, $\text{RMSE}_{\text{world}} \le 0.05\text{ m}$ ($50\text{ mm}$). If the error exceeds this threshold, a warning or validation error is triggered during system initialization.
 

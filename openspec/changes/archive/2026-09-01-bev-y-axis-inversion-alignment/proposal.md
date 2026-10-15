@@ -20,7 +20,7 @@ This proposal aligns the presentation layer coordinate projection so that the vi
 1. **`src/utils/visualizer.py`:**
    - Update `_world_to_bev` to project depth with vertical inversion:
      $$v = H - 1 - \text{offset}_y - (Y_w - Y_{\min}) \cdot s_{\text{bev}}$$
-   - Update velocity arrow endpoint calculation to evaluate $(u_{\text{end}}, v_{\text{end}}) = \text{world\_to\_bev}(\mathbf{p} + \mathbf{v} \cdot \Delta t)$.
+   - Update velocity arrow endpoint calculation to evaluate $(u_{\text{end}}, v_{\text{end}}) = \text{world-to-bev}(\mathbf{p} + \mathbf{v} \cdot \Delta t)$.
    - Position metric grid labels intuitively (X-axis ticks at bottom, Y-axis ticks along left margin).
 
 2. **`tests/test_visualizer.py`:**

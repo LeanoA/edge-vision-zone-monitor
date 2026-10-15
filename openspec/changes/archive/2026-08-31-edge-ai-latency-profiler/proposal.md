@@ -1,7 +1,7 @@
 # Proposal: Edge AI Latency Profiler & Dual Reaction Time Architecture
 
 ## Intent
-Implement a high-resolution Edge AI performance profiler decoupling **$T_{\text{system}}$** (per-frame pipeline execution time: $T_{\text{capture}} + T_{\text{pre}} + T_{\text{infer}} + T_{\text{pose}} + T_{\text{geom}} + T_{\text{track}} + T_{\text{fsm}}$) from **$T_{\text{event}}$** (physical intrusion-to-trip reaction time: $t_{\text{trip}} - t_{\text{physical\_entry}}$) per ISO 13855 / IEC 61496.
+Implement a high-resolution Edge AI performance profiler decoupling **$T_{\text{system}}$** (per-frame pipeline execution time: $T_{\text{capture}} + T_{\text{pre}} + T_{\text{infer}} + T_{\text{pose}} + T_{\text{geom}} + T_{\text{track}} + T_{\text{fsm}}$) from **$T_{\text{event}}$** (physical intrusion-to-trip reaction time: $t_{\text{trip}} - t_{\text{physical-entry}}$) per ISO 13855 / IEC 61496.
 
 ```
 ════════════════════════════════════════════════════════════════════════════════

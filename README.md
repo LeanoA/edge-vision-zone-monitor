@@ -128,9 +128,9 @@ This project serves as an experimental platform to rigorously resolve engineerin
   * *Validation:* [`tests/test_fsm.py`](tests/test_fsm.py) tests tangential motion, boundary oscillations, and high-speed incursions.
 * **Q5: Do ankle keypoints justify the compute overhead over a bounding box base? ([See ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md))**
   * *Applied Framework:* The practical baseline is the bounding box bottom-center:
-    $$p_{\text{ground\_bbox}} = \left( \frac{x_{\min} + x_{\max}}{2}, \, y_{\max} \right)$$
+    $$p_{\text{ground-bbox}} = \left( \frac{x_{\min} + x_{\max}}{2}, y_{\max} \right)$$
     In contrast, pose estimation isolates anatomical floor contact:
-    $$p_{\text{ground\_pose}} = \text{mean}\left(\text{valid\_ankles}(k_{15}, k_{16})\right)$$
+    $$p_{\text{ground-pose}} = \operatorname{mean}\left(\text{valid-ankles}(k_{15}, k_{16})\right)$$
   * *Experimental Trade-Off:* Pose provides anatomical fidelity invariant to torso lean or camera tilt, but incurs higher computational cost. Bounding box bottom-center is $\approx 30\text{–}40\%$ faster but severely deforms when an operator bends forward over a barrier.
 * **Q6: How does the system behave when feet or ankles are occluded by machinery or pallets? ([See ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md))**
   * *Failure Mode:* If machinery blocks an operator's feet, the pose model reports low confidence (`conf < 0.5`) on both ankles. Dropping detections creates a blind hazard; using low-confidence points injects catastrophic noise into the homography.
@@ -467,7 +467,7 @@ During rigorous stress testing with dense pedestrian datasets (`pets2009_s2_l1` 
 ### 2. Duplicate Proposals & Ghost Tracks — ✅ RESOLVED ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md))
 * **Symptom:** Redundant pose proposals from YOLO (both ankles or overlapping bounding box proposals) instantiated duplicate parallel tracks for a single worker.
 * **Implemented Solution:**
-  1. **World-Space Spatial Birth NMS ($d_{\text{birth\_min}} = 0.6\text{ m}$):** Strict spatial exclusion rule prohibiting track instantiation if the metric floor detection is within $0.6\text{ m}$ of any active track or another newborn candidate in the same frame.
+  1. **World-Space Spatial Birth NMS ($d_{\text{birth-min}} = 0.6\text{ m}$):** Strict spatial exclusion rule prohibiting track instantiation if the metric floor detection is within $0.6\text{ m}$ of any active track or another newborn candidate in the same frame.
 
 ### 3. Synthetic Domain Gap in Simulated Video — ✅ RESOLVED ([ADR-012](docs/decisions/adr-012-synthetic-yolo-video-generation.md), [Technical Report](docs/data/synthetic_generation.md))
 * **Symptom:** Primitive synthetic videos drawn with 2D geometric vectors (`cv2.line` / `cv2.rectangle`) yielded a **0% detection rate** in YOLO-Pose due to the absence of realistic natural gradients and textures.

@@ -152,7 +152,7 @@ stateDiagram-v2
 #### 1.4.1 State Definitions
 1. **`SAFE`**: No tracked targets inside warning or danger perimeters. No hazardous approach velocities detected. Machine runs at full rated operational speed.
    - `trip = False`, `warning = False`.
-2. **`WARNING_APPROACH`**: A worker has entered the outer warning zone $P_{\text{warning}}$ or is moving towards $P_{\text{danger}}$ with normal approach velocity $v_n = \vec{v} \cdot \hat{\mathbf{n}}_{\text{boundary}} > v_{\text{warn\_thresh}}$ ($1.6\text{ m/s}$ per ISO 13855). Triggers audible/visual beacons or commands collaborative robot speed reduction.
+2. **`WARNING_APPROACH`**: A worker has entered the outer warning zone $P_{\text{warning}}$ or is moving towards $P_{\text{danger}}$ with normal approach velocity $v_n = \vec{v} \cdot \hat{\mathbf{n}}_{\text{boundary}} > v_{\text{warn-thresh}}$ ($1.6\text{ m/s}$ per ISO 13855). Triggers audible/visual beacons or commands collaborative robot speed reduction.
    - `trip = False`, `warning = True`.
 3. **`DANGER_INTRUSION`**: One or more confirmed worker tracks are within $P_{\text{danger}}$ persistently for $\ge N_{\text{confirm}}$ consecutive frames. Immediate fail-safe machine stop commanded.
    - `trip = True`, `warning = True`.
@@ -195,7 +195,7 @@ To eliminate contactor chattering, the FSM couples spatial zone buffering with t
 #### 1.5.2 Temporal Debouncing
 - **Intrusion Confirmation ($N_{\text{confirm}}$):**
   A confirmed track entering $P_{\text{danger}}$ increments `danger_count`. The FSM transitions to `DANGER_INTRUSION` if and only if:
-  $$\text{danger\_count} \ge N_{\text{confirm}} \quad (N_{\text{confirm}} = 3\text{ frames} \approx 100\text{ ms})$$
+  $$\text{danger-count} \ge N_{\text{confirm}} \quad (N_{\text{confirm}} = 3\text{ frames} \approx 100\text{ ms})$$
   Transient single-frame spikes (e.g. single-frame keypoint misdetections) reset the counter if the worker exits before reaching $N_{\text{confirm}}$.
 - **Release Confirmation ($N_{\text{release}}$):**
   To recover from `DANGER_INTRUSION` back to `SAFE`, every tracked target that was inside the hazard must satisfy:
@@ -208,10 +208,10 @@ To eliminate contactor chattering, the FSM couples spatial zone buffering with t
 | :--- | :--- | :--- | :--- | :--- |
 | `FAULT` | `SAFE` | Frame Tick | `diagnostics_ok == True` and no tracks in $P_{\text{danger}}$ | `(False, False)` |
 | `SAFE` | `WARNING_APPROACH` | Frame Tick | Track in $P_{\text{warning}}$ OR ($v_n > v_{\text{thresh}}$ and $d < d_{\text{warn}}$) | `(False, True)` |
-| `SAFE` | `DANGER_INTRUSION` | Frame Tick | $\text{danger\_count} \ge N_{\text{confirm}}$ for any confirmed track | `(True, True)` |
+| `SAFE` | `DANGER_INTRUSION` | Frame Tick | $\text{danger-count} \ge N_{\text{confirm}}$ for any confirmed track | `(True, True)` |
 | `WARNING_APPROACH` | `SAFE` | Frame Tick | All tracks outside $P_{\text{warning}}$ and no approach warnings | `(False, False)` |
-| `WARNING_APPROACH` | `DANGER_INTRUSION` | Frame Tick | $\text{danger\_count} \ge N_{\text{confirm}}$ for any confirmed track | `(True, True)` |
-| `DANGER_INTRUSION` | `SAFE` | Frame Tick | All violating tracks outside $P_{\text{release}}$ and $\text{clean\_count} \ge N_{\text{release}}$ | `(False, False)` |
+| `WARNING_APPROACH` | `DANGER_INTRUSION` | Frame Tick | $\text{danger-count} \ge N_{\text{confirm}}$ for any confirmed track | `(True, True)` |
+| `DANGER_INTRUSION` | `SAFE` | Frame Tick | All violating tracks outside $P_{\text{release}}$ and $\text{clean-count} \ge N_{\text{release}}$ | `(False, False)` |
 | `ANY` | `MUTED` | Mute Input | `muting_requested == True` and muting conditions satisfied | `(False, True)` |
 | `MUTED` | `SAFE` | Mute Release | `muting_requested == False` and no tracks in $P_{\text{danger}}$ | `(False, False)` |
 | `MUTED` | `DANGER_INTRUSION` | Mute Release | `muting_requested == False` and track in $P_{\text{danger}}$ | `(True, True)` |

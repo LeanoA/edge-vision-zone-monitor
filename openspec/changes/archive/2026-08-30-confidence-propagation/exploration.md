@@ -178,7 +178,7 @@ flowchart TD
    - Confidence: $c = c_{\text{det}} \times 0.40 \in [0.20, 0.40]$ (penalizes severe vertical parallax error when obstacles cut off legs above ground)
    - Measurement Noise: $R = 5.0 \times R_0 = \text{diag}([0.25, 0.25])\text{ m}^2$
 4. **Tier 4 (`TRACKER_PREDICTED`)**:
-   - Condition: Active track unmatched in current frame ($1 \le \text{missed\_count} \le max_{\text{missed}}$)
+   - Condition: Active track unmatched in current frame ($1 \le \text{missed-count} \le max_{\text{missed}}$)
    - Position: $\hat{x}_{k|k-1} = F \hat{x}_{k-1}$
    - Confidence: $c_k = c_{\text{last}} \times (0.85)^k$ (exponential decay reflecting absence of sensory confirmation)
    - Covariance: $P_{k|k-1}[0:2, 0:2]$ directly from Kalman covariance matrix.
@@ -240,7 +240,7 @@ We must preserve 100% compatibility with the existing codebase and tests:
 1. **Contract Placement**: Define `AnchorSource` and `PositionEstimate` in `src/core/kalman_filter.py`, re-export in `src/pipeline/safety_pipeline.py`.
 2. **Anchor Hierarchy Function**: Implement `extract_ground_anchor` with `allow_bbox_fallback=True` implementing Tiers 1-3. Retain `extract_ankle_anchor` as a backward-compatible wrapper.
 3. **Adaptive Measurement Noise**: Update `MetricKalmanFilter.update(measurement, R=None)` to support source-dependent measurement covariance ($R_{\text{dual}} = 0.05$, $R_{\text{single}} = 0.10$, $R_{\text{bbox}} = 0.25$).
-4. **Track Confidence Decay**: In `Track.mark_missed()`, set source to `AnchorSource.TRACKER_PREDICTED` and decay confidence by $0.85^{\text{missed\_count}}$.
+4. **Track Confidence Decay**: In `Track.mark_missed()`, set source to `AnchorSource.TRACKER_PREDICTED` and decay confidence by $0.85^{\text{missed-count}}$.
 5. **Gating Containment**: Rely on `MultiTargetKalmanTracker`'s Euclidean gating ($1.0\text{m}$) to reject outlier bbox bottom projections, allowing tracks to coast smoothly rather than jump to obstacle edges.
 6. **Telemetry & Visualization**: Expose `track.estimate.source` and `track.estimate.confidence` in `DualVisualizer` track labels (e.g., `ID:1 1.6m/s [DUAL 0.92]` vs `ID:1 1.6m/s [COAST 0.61]`).
 

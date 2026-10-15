@@ -39,7 +39,7 @@ The `SpatialFSM` MUST implement temporal debounce counters with strict epistemol
 The `SpatialFSM` MUST track the cumulative dwell time $t_{\text{dwell}}$ (in seconds) of any target residing continuously within the warning zone (outside $P_{\text{danger}}$ but inside $P_{\text{release}}$ or within configured warning perimeter), and MUST freeze dwell accrual during dead-reckoning coasting:
 1. **Dwell Accrual under Sensory Observation**: While a target is inside the warning zone with `track.observation_status == ObservationStatus.OBSERVED`, `dwell_time_s` MUST accumulate monotonically based on wall-clock elapsed time.
 2. **Dwell Freezing during Dead Reckoning**: While a target resides inside the warning zone with `track.observation_status` of `PREDICTED` or `STALE`, its `dwell_time_s` MUST be frozen at the last verified observed dwell duration. Dead reckoning SHALL NOT accrue false dwell time against unverified physical presence.
-3. **Threshold Escalation**: If the frozen or active `dwell_time_s` satisfies $t_{\text{dwell}} \ge T_{\text{dwell\_warn}}$ (default: $3.0\text{ s}$ or configured `dwell_warning_s`), the FSM MUST assert warning telemetry and emit a dwell warning alert.
+3. **Threshold Escalation**: If the frozen or active `dwell_time_s` satisfies $t_{\text{dwell}} \ge T_{\text{dwell-warn}}$ (default: $3.0\text{ s}$ or configured `dwell_warning_s`), the FSM MUST assert warning telemetry and emit a dwell warning alert.
 4. **Dwell Reset**: When a target moves completely outside $P_{\text{release}}$ with `ObservationStatus.OBSERVED`, its dwell timer MUST reset to $0.0\text{ s}$.
 
 #### Scenario: Continuous dwell time accumulation during sustained observation

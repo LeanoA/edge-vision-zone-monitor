@@ -28,8 +28,8 @@ All inference engine abstractions (`OnnxEngine`, `TorchEngine`) MUST implement a
 The comparative benchmark suite MUST profile inference latency across isolated warmup and timed measurement runs, computing:
 1. Statistical moments: `mean_ms`, `std_ms`, `variance_ms2`, `min_ms`, `max_ms`.
 2. Percentiles: `p50_ms`, `p95_ms`, `p99_ms`, `iqr_ms`.
-3. Throughput: `fps` ($1000 / \text{mean\_ms}$).
-4. Speedup factor: $S_{\text{engine}} = \frac{\text{mean}_{\text{pytorch\_cpu}}}{\text{mean}_{\text{engine}}}$.
+3. Throughput: `fps` ($1000 / \text{mean-ms}$).
+4. Speedup factor: $S_{\text{engine}} = \frac{\text{mean}_{\text{pytorch-cpu}}}{\text{mean}_{\text{engine}}}$.
 5. ISO 13855 safety budget verification: `passed_budget = (p95_ms <= 30.0)`.
 
 #### Scenario: Comparing multiple runtimes

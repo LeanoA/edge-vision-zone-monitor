@@ -7,7 +7,7 @@ Enhance `extract_ground_anchor` in `src/pipeline/safety_pipeline.py` with boundi
 
 | Decision | Option Selected | Tradeoffs & Alternatives | Rationale |
 | :--- | :--- | :--- | :--- |
-| **Scale Thresholding Strategy** | Bounding box pixel height $(y2 - y1) < \text{min\_ankle\_bbox\_height}$ | Alt: Distance in world coordinates $(Y_w > Y_{\text{thresh}})$ | Pixel height directly reflects sensor resolution and convolutional receptive field capacity without requiring prior homography inversion. |
+| **Scale Thresholding Strategy** | Bounding box pixel height $(y2 - y1) < \text{min-ankle-bbox-height}$ | Alt: Distance in world coordinates $(Y_w > Y_{\text{thresh}})$ | Pixel height directly reflects sensor resolution and convolutional receptive field capacity without requiring prior homography inversion. |
 | **Default Threshold Value** | `min_ankle_bbox_height = 0.0` (disabled by default) | Alt: Hardcoded `120.0` | Default of `0.0` ensures 100% backward compatibility for all existing tests and benchmarks, while allowing runtime/pipeline callers to pass e.g. `100.0` or `120.0`. |
 | **Visualizer Palette** | Distinct BGR color coding per `AnchorSource` | Alt: Single color with text label only | Visual colors (`ANKLES_DUAL`: Cyan, `ANKLE_SINGLE`: Yellow, `BBOX_BOTTOM`: Magenta) provide instantaneous perceptual feedback at high frame rates without visual clutter. |
 

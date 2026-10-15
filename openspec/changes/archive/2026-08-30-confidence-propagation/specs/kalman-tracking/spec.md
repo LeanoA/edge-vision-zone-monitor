@@ -52,8 +52,8 @@ The `Track` class MUST encapsulate metric uncertainty and provenance, exposing a
    - When a track misses association and enters or remains in `COASTING` state (`mark_missed`):
      - `source` MUST be set to `AnchorSource.TRACKER_PREDICTED`.
      - `confidence` MUST decay exponentially as a function of consecutive missed frames:
-       $$c_k = c_{\text{last\_confirmed}} \times (0.85)^{\text{missed\_count}}$$
-       where $c_{\text{last\_confirmed}}$ is the confidence value at the last successful measurement update, and $\text{missed\_count} \in [1, \text{max\_missed}]$.
+       $$c_k = c_{\text{last-confirmed}} \times (0.85)^{\text{missed-count}}$$
+       where $c_{\text{last-confirmed}}$ is the confidence value at the last successful measurement update, and $\text{missed-count} \in [1, \text{max-missed}]$.
 4. **Confidence Recovery upon Re-detection**:
    - When a coasting track is re-associated with a new measurement, `missed_count` MUST reset to 0, `confidence` MUST restore to the incoming measurement's confidence $c_{\text{meas}}$, and `source` MUST be updated to the measurement's `AnchorSource`.
 5. **Backward Compatibility**: `Track.position` MUST continue returning `Tuple[float, float]` and `Track.velocity` MUST continue returning `Tuple[float, float]`. `MultiTargetKalmanTracker.update` MUST accept both legacy 2D coordinate arrays and typed `PositionEstimate` sequences.
