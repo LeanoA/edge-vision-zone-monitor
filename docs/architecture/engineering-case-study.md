@@ -84,6 +84,8 @@ flowchart TD
     DECISION_LOGIC -.-> PROFILER
 ```
 
+![End-to-End Decoupled Architecture Flowchart](../figures/pipeline_flow.png)
+
 ---
 
 ## 3. Deep-Dive: Architectural Dilemmas & Solutions
@@ -94,6 +96,8 @@ flowchart TD
 * **The Solution:** The true physical anchor is the floor contact point ($Z_w = 0$). By extracting ankle keypoints (`left_ankle: 15`, `right_ankle: 16`), the contact point is resolved:
   $$p_{\text{ground}} = \frac{p_{\text{ankle\_left}} + p_{\text{ankle\_right}}}{2}$$
 * **Graceful Degradation:** If one ankle is occluded ($\text{conf} < 0.5$), the system falls back to the visible ankle. If both ankles are occluded by low machinery or pallets, it triggers confidence-penalized bounding box bottom-center fallback followed by Kalman open-loop coasting ([ADR-007](file:///Users/xander/Projects/edge-safety-guard/docs/decisions/adr-007-occlusion-handling-confidence-propagation.md)).
+
+![Ground Anchor Comparison: Ankle Contact vs BBox Centroid Deformation](../figures/bbox_vs_ankles.png)
 
 ---
 
@@ -168,6 +172,8 @@ stateDiagram-v2
 
 ---
 
+![Spatial Schmitt Trigger: Dual Hysteresis Band](../figures/schmitt_trigger.png)
+
 ### F. Multi-Target Association & Ghost Track Suppression ([ADR-011](file:///Users/xander/Projects/edge-safety-guard/docs/decisions/adr-011-mahalanobis-hungarian-mot.md))
 
 * **The Problem:** In crowded workcells, greedy nearest-neighbor matching swaps track IDs during trajectory crossings. Furthermore, redundant pose proposals spawn duplicate tracks (*ghost tracks*) on a single worker.
@@ -176,6 +182,8 @@ stateDiagram-v2
      $$d_M^2 = (\mathbf{z} - \hat{\mathbf{z}})^T S^{-1} (\mathbf{z} - \hat{\mathbf{z}}) \le \chi^2_2(0.99) = 9.210$$
   2. *Global Combinatorial Assignment:* Solves the assignment matrix via the Munkres / Hungarian algorithm (`scipy.optimize.linear_sum_assignment`) in $\mathcal{O}(N^3)$ within $0.017\text{ ms}$ for 10 workers.
   3. *World-Space Spatial Birth NMS:* Rejects new track creation if a metric detection falls within $d_{\text{birth\_min}} = 0.6\text{ m}$ of any existing track or concurrent birth proposal.
+
+![Mahalanobis Innovation Gating Ellipsoid](../figures/kalman_mahalanobis.png)
 
 ---
 
@@ -188,6 +196,8 @@ stateDiagram-v2
      $$h = \frac{480}{1.0 + 0.165 \cdot Y}$$
   3. *Decoupled Non-Destructive HUD:* Safety metrics rendered in dedicated margins without occluding subject feature maps.
   * **Result:** Reached a **100% detection rate** across all synthetic benchmark sequences with average confidence **0.835 – 0.861**, enabling automated regression testing of all safety state transitions.
+
+![Pinhole Perspective Anthropometric Scale Curve](../figures/pinhole_scaling.png)
 
 ---
 
@@ -203,6 +213,8 @@ All benchmarks are empirically verified across standard datasets and synthetic s
 | **`mendeley_industrial`** | Machine Intervention | $1920 \times 1080$ | 173 | $37.5\text{ FPS}$ | $15.35\text{ ms}$ | $18.26\text{ ms}$ | ✅ High-Res Pose & Pre-alert Verified |
 | **`opencv_vtest`** | Pedestrian Surveillance | $768 \times 576$ | 795 | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Intrusion & Lockout Invariants Verified |
 | **`pets2009_s2_l1`** | Multi-Target Crowd | $768 \times 576$ | 795 | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Munkres Association & Zero ID Swaps |
+
+![Pipeline Stage Latency Breakdown](../figures/latency_breakdown.png)
 
 ---
 

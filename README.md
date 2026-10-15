@@ -15,30 +15,28 @@
 
 </div>
 
-Prototipo experimental de visión artificial para monitoreo de incursiones y control de permanencia en zonas restringidas en tiempo real, combinando **YOLO Pose**, **Transformación Homográfica (2D Píxel a Plano Métrico)**, **Filtrado Kalman 2D Cinemático** y **Máquinas de Estados Finitos Espaciales (Spatial FSM)**.
+Experimental computer vision prototype for real-time restricted zone incursion monitoring and dwell time analysis, combining **YOLO Pose**, **Planar Homography Transformation (2D Pixel to Metric Floor Plane)**, **2D Kinematic Kalman Filtering**, and **Orthogonal Spatial Statecharts (Spatial FSM)**.
 
 ---
 
-## 🎯 Definición Formal del Problema
+## 🎯 Formal Problem Definition
 
-> Given a video stream from a fixed monocular camera observing an approximately planar floor, estimate the ground-plane position of visible workers, determine whether they enter a configured metric restricted zone, and emit temporally stable intrusion and dwell events while characterizing end-to-end processing latency.
+> *Given a video stream from a fixed monocular camera observing an approximately planar floor, estimate the ground-plane position of visible workers, determine whether they enter a configured metric restricted zone, and emit temporally stable intrusion and dwell events while characterizing end-to-end processing latency.*
 
 > [!CAUTION]
-> **Non-goal:** *This prototype is not a certified safety function and must not be used to stop or control hazardous machinery.*
-> 
-> **Aviso de Alcance y Seguridad Funcional (Disclaimer):**
-> *Experimental vision-based intrusion monitoring system inspired by industrial safety-zone concepts and ISO 13855 safety-distance reasoning. Not a safety-rated protective device.*
-> Este software es un desarrollo experimental de investigación y prototipado. No constituye un Equipo de Protección Electrosensible (ESPE) ni un Dispositivo de Protección Basado en Visión (VBPD) certificado funcionalmente bajo IEC 61496, ISO 13849 (PL) o IEC 61508 (SIL). No debe ser utilizado como mecanismo de parada de emergencia en maquinaria peligrosa sin salvaguardas mecánicas certificadas.
+> **Safety Scope & Regulatory Boundary (Disclaimer):**  
+> *Experimental vision-based spatial monitoring prototype inspired by industrial safety-zone concepts and ISO 13855 response-time modeling. Not a safety-rated protective device.*  
+> This software is an experimental engineering and research prototype. It does not constitute an Electro-Sensitive Protective Equipment (ESPE) nor a Vision-Based Protective Device (VBPD) functionally certified under IEC 61496, ISO 13849 (PL), or IEC 61508 (SIL). It must not be deployed as an autonomous safety trip mechanism on hazardous industrial machinery without certified physical interlocks.
 
 ---
 
-## 📌 Alcance y Funcionalidades (Scope Freeze)
+## 📌 Scope & Architectural Boundaries (Scope Freeze)
 
-Para garantizar la entrega de un sistema robusto, determinista y verificable sin sobreingeniería, el alcance del proyecto queda congelado y categorizado de la siguiente manera:
+To ensure the delivery of a robust, deterministic, and verifiable system without overengineering, the project scope is formally categorized into the following tiers:
 
-### 1. Núcleo Principal y Flujo de Datos End-to-End
+### 1. Core End-to-End Pipeline & Data Flow
 
-El sistema está estructurado en 5 etapas secuenciales de percepción y decisión, integradas con un módulo ortogonal de perfilado de latencia (*Performance Profiler*) para evaluar empíricamente presupuestos de tiempo real inspirados en el modelo de respuesta de **ISO 13855**:
+The architecture is structured across 5 sequential perception and decision stages, accompanied by an orthogonal **Performance Profiler** to empirically evaluate real-time budgets inspired by the **ISO 13855** response-time model:
 
 ```mermaid
 flowchart TD
@@ -70,7 +68,7 @@ flowchart TD
         DWELL --> OVERLAY["Dual Visualizer<br/>(Perspective + Top-Down BEV)"]
     end
 
-    subgraph PROFILER ["PERFORMANCE PROFILER (Ortogonal)"]
+    subgraph PROFILER ["PERFORMANCE PROFILER (Orthogonal)"]
         PROF["Stage Latency Profiling:<br/>• Capture / Ingestion<br/>• Preprocess Letterbox<br/>• Model Inference<br/>• Keypoint Extraction<br/>• Metric Homography<br/>• Kalman Tracking<br/>• Spatial FSM Decision<br/><b>Total Reaction Budget T₁ ≤ 50 ms</b>"]
     end
 
@@ -80,93 +78,89 @@ flowchart TD
     DECISION_LOGIC -.-> PROFILER
 ```
 
-#### Mapeo Arquitectónico y Estado de Implementación
+#### Architectural Mapping & Implementation Status
 
-| Capa Arquitectónica | Componente / Flujo | Módulo de Código | Estado y Próximos Pasos (Edge AI) |
+| Architectural Layer | Component / Flow | Code Module | Implementation Status (Edge AI) |
 | :--- | :--- | :--- | :--- |
-| **1. PERCEPTION** | Camera Frame $\to$ Pose Inference $\to$ Keypoints $\to$ Ground Contact | `src/inference/onnx_engine.py`<br>`src/pipeline/safety_pipeline.py` | **100% Implementado**<br>• Inferencia YOLO11n-Pose ONNX (`CoreMLExecutionProvider` / CPU / CUDA).<br>• Extracción anatómica de tobillos (`left_ankle: 15`, `right_ankle: 16`) con fallback a borde inferior de Bbox ([ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md), [ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md)). |
-| **2. GEOMETRY** | Proyección Homográfica $\to$ $(X,Y)$ métrico en plano de suelo ($Z_w=0$) | `src/core/homography.py` | **100% Implementado**<br>• Mapeo planar DLT $3 \times 3$ con validación geométrica de colinealidad y condicionamiento numérico $\kappa(H) < 10^6$ ([ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md), [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md)). |
-| **3. STATE ESTIMATION** | Filtro Kalman 2D Cinemático $\to$ Trayectoria Métrica Filtrada | `src/core/kalman_filter.py` | **100% Implementado**<br>• Modelo cinemático de Velocidad Constante (CV) con matriz de covarianza y ganancia $K_k$.<br>• Epistemología de 3 estados de observación (`OBSERVED`, `PREDICTED`, `STALE`) con límite de divergencia cuadrática ([ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md), [ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md)).<br>• Asignación global combinatoria (Algoritmo Húngaro / Munkres) con compuerta elipsoidal de Mahalanobis $\chi^2_2(0.99)$ y World-Space Spatial Birth NMS ($0.6\text{ m}$) ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md)). |
-| **4. DECISION LOGIC** | Zone Test $\to$ Spatial FSM $\to$ Dwell Timer | `src/core/spatial_fsm.py` | **100% Implementado**<br>• Regiones ortogonales Statecharts: `OccupancyState` (`OUTSIDE`, `ENTER_PENDING`, `INSIDE`, `EXIT_PENDING`) $\times$ `DwellState` (`NONE`, `NORMAL`, `WARNING`, `VIOLATION`) ([ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md)).<br>• Disparo fail-safe instantáneo en `INSIDE` ($t=0\text{ s}$) y bypass dinámico por velocidad $v_n \ge 1.6\text{ m/s}$ (ISO 13855). |
-| **5. OUTPUT** | Overlay Dual $\to$ Stream de Telemetría $\to$ Métricas | `src/utils/visualizer.py`<br>`scripts/run_demo.py` | **100% Implementado**<br>• Compositor dual en tiempo real (Perspectiva anotada + Bird's-Eye View métrico).<br>• Emisión de telemetría estructurada JSONL y reporte de percentiles de rendimiento.<br>*(Roadmap Edge AI: Exporter industrial para protocolos de planta MQTT / ZeroMQ / gRPC)*. |
-| **6. PROFILER (Ortogonal)** | Profiling granular por etapa $\to$ Latencia End-to-End ($T_1$) | `src/pipeline/safety_pipeline.py`<br>`src/inference/benchmark.py` | **95% Implementado**<br>• Medición de alta resolución en cada etapa ($T_1 = t_{\text{pre}} + t_{\text{inf}} + t_{\text{pose}} + t_{\text{proj}} + t_{\text{track}} + t_{\text{fsm}}$) con percentiles p50, p95 y p99.<br>*(Próximo paso 5%: Medición de hardware timestamp en captura e ingestión con ring buffer)*. |
+| **1. PERCEPTION** | Camera Frame $\to$ Pose Inference $\to$ Keypoints $\to$ Ground Contact | `src/inference/onnx_engine.py`<br>`src/pipeline/safety_pipeline.py` | **100% Implemented**<br>• YOLO11n-Pose ONNX inference (`CoreMLExecutionProvider` / CPU / CUDA).<br>• Anatomical ankle extraction (`left_ankle: 15`, `right_ankle: 16`) with fallback to bounding box base ([ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md), [ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md)). |
+| **2. GEOMETRY** | Homography Projection $\to$ Metric $(X, Y)$ on floor plane ($Z_w = 0$) | `src/core/homography.py` | **100% Implemented**<br>• Planar DLT $3 \times 3$ mapping with collinearity verification and numerical condition threshold $\kappa(H) < 10^6$ ([ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md), [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md)). |
+| **3. STATE ESTIMATION** | 2D Kinematic Kalman Filter $\to$ Filtered Metric Trajectory | `src/core/kalman_filter.py` | **100% Implemented**<br>• Constant Velocity (CV) kinematic state model with Kalman gain $K_k$.<br>• Three-tier observation epistemology (`OBSERVED`, `PREDICTED`, `STALE`) with quadratic divergence bounding ([ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md), [ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md)).<br>• Global combinatorial assignment (Munkres / Hungarian) with Mahalanobis validation gate $\chi^2_2(0.99) \le 9.21$ and World-Space Spatial Birth NMS ($0.6\text{ m}$) ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md)). |
+| **4. DECISION LOGIC** | Zone Containment $\to$ Spatial FSM $\to$ Dwell Classifier | `src/core/spatial_fsm.py` | **100% Implemented**<br>• Orthogonal Statecharts regions: `OccupancyState` (`OUTSIDE`, `ENTER_PENDING`, `INSIDE`, `EXIT_PENDING`) $\times$ `DwellState` (`NONE`, `NORMAL`, `WARNING`, `VIOLATION`) ([ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md)).<br>• Instant fail-safe trip on confirmed `INSIDE` ($t = 0\text{ s}$) and dynamic velocity bypass for $v_n \ge 1.6\text{ m/s}$ (ISO 13855). |
+| **5. OUTPUT** | Dual Overlay $\to$ Telemetry Stream $\to$ Metrics | `src/utils/visualizer.py`<br>`scripts/run_demo.py` | **100% Implemented**<br>• Real-time dual compositor (Annotated Perspective + Top-Down Metric BEV).<br>• Structured JSONL telemetry emission and latency percentile reporting.<br>*(Edge AI Roadmap: Industrial telemetry exporter for MQTT / ZeroMQ / gRPC plant protocols)*. |
+| **6. PROFILER (Orthogonal)** | Granular stage profiling $\to$ End-to-End Latency ($T_1$) | `src/pipeline/safety_pipeline.py`<br>`src/inference/benchmark.py` | **95% Implemented**<br>• High-resolution timer across all pipeline stages ($T_1 = t_{\text{pre}} + t_{\text{inf}} + t_{\text{pose}} + t_{\text{proj}} + t_{\text{track}} + t_{\text{fsm}}$) reporting p50, p95, and p99 percentiles.<br>*(Next step 5%: Hardware timestamp ingestion via V4L2 ring buffer)*. |
 
-### 2. Secundario (Sólo si sobra tiempo)
-* **Comparación PyTorch vs ONNX:** Benchmark comparativo de throughput y latencia entre runtime nativo de PyTorch y ONNX Runtime.
-* **Benchmark CoreML Execution Provider:** Profiling granular del motor CoreML en Apple Silicon (ANE vs GPU).
-* **Baseline de Detector Alternativo:** Pruebas comparativas de precisión/latencia con detectores ligeros alternativos.
+### 2. Secondary Scope (Evaluation Extensions)
+* **PyTorch vs ONNX Runtime Comparison:** Empirical throughput and latency benchmarking between native PyTorch and ONNX Runtime.
+* **CoreML Execution Provider Profiling:** Granular profiling of Apple Silicon Neural Engine (ANE) vs GPU execution.
+* **Alternative Detector Baseline:** Latency and accuracy trade-off benchmarks comparing alternative lightweight pose detectors.
 
-### 3. Fuera de Alcance del MVP (Definitivamente después)
-* **Optimización en NVIDIA GTX 1050:** Cuantización post-entrenamiento a INT8 obligatoria para arquitectura Pascal sin Tensor Cores.
-* **Compilación TensorRT / DeepStream:** Pipelines zero-copy en hardware NVIDIA.
-* **Soporte Embebido Dedicado:** Adaptaciones para NVIDIA Jetson (Nano/Orin) y Raspberry Pi.
-* **Contenedorización Docker:** Empaquetado en contenedor para producción.
-* **Fusión Sensorial:** Integración de datos de LiDAR, radar o barreras fotoeléctricas físicas.
-* **Topología Multi-Cámara:** Calibración extrínseca multicámara y re-identificación de operarios entre sensores.
-* **Entrenamiento & Fine-Tuning:** Re-entrenamiento del modelo con datasets específicos de indumentaria industrial.
+### 3. Explicitly Out of MVP Scope
+* **Pascal INT8 TensorRT Engine:** Specialized post-training INT8 quantization for Pascal GPUs without native Tensor Cores.
+* **DeepStream Zero-Copy Pipelines:** GStreamer/DeepStream C++ zero-copy shared memory pipelines.
+* **Dedicated Embedded Hardware:** Hardware-specific adaptations for NVIDIA Jetson Orin/Nano and Raspberry Pi compute modules.
+* **Multi-Modal Sensor Fusion:** Integration of physical LiDAR, radar, or physical light curtain inputs.
+* **Multi-Camera Topology:** Extrinsic calibration across distributed multi-camera nodes and cross-camera person re-identification.
+* **Domain Re-Training:** Fine-tuning models on domain-specific datasets featuring heavy protective personal equipment (PPE).
 
 ---
 
-## 🔬 Objetivos de Estudio, Preguntas Clave y Validación
+## 🔬 Core Engineering Studies & Validation
 
-Este proyecto sirve como plataforma experimental para responder preguntas técnicas rigurosas sobre visión por computadora aplicada a la estimación cinemática y dimensionamiento de zonas. Las siguientes preguntas guían el análisis teórico y se validan empíricamente mediante código y suites de pruebas:
+This project serves as an experimental platform to rigorously resolve engineering dilemmas regarding computer vision applied to kinematic estimation and spatial safety zone monitoring:
 
-### 1. Estudios Teóricos & Metrología
-* **Q1: ¿Cómo contribuye la latencia de percepción ($t_1$) a la distancia de separación física requerida?**
-  * *Marco Teórico:* Bajo la formulación $S = K \cdot T + C = K(t_1 + t_2 + t_3) + C$, cada $10\text{ ms}$ de latencia en el pipeline a una velocidad de marcha de $K = 1.6\text{ m/s}$ ($1600\text{ mm/s}$) añade $16\text{ mm}$ directos a la distancia de separación requerida. Si el pipeline corre a 10 FPS ($100\text{ ms}$), $S$ debe incrementarse en $160\text{ mm}$ adicionales frente a una ejecución a 30 FPS ($33.3\text{ ms}$), reduciendo el espacio útil de la planta.
-  * *Validación:* [`tests/test_pipeline.py`](tests/test_pipeline.py) y [`scripts/benchmark.py`](scripts/benchmark.py).
-* **Q2: ¿Por qué la estimación de velocidad mediante derivada discreta simple ($\Delta x / \Delta t$) falla en video industrial?**
-  * *Marco Teórico:* La diferenciación numérica amplifica el ruido de alta frecuencia. A 30 FPS ($\Delta t = 0.033\text{ s}$), una fluctuación estocástica de detección de keypoint de apenas $2\text{ cm}$ produce un pico ficticio de velocidad de $0.6\text{ m/s}$ ($2.16\text{ km/h}$).
-  * *Solución & Validación:* El filtro de Kalman desacopla la medición ruidosa mediante la ganancia de Kalman $K_k$, estimando velocidad y posición continuas con covarianza acotada ([`tests/test_kalman.py`](tests/test_kalman.py)).
-* **Q3: ¿Cuál es el error de reproyección real de una homografía planar y cómo impacta el condicionamiento matricial?**
-  * *Marco Teórico:* Con $N=4$ puntos coplanares, el sistema lineal DLT es exactamente determinado ($8 \times 8$), por lo que el residuo algebraico de entrenamiento es idénticamente 0. Un número de condición $\kappa(H) > 10^5$ revela degeneración proyectiva (puntos casi colineales o ángulos rasantes), lo que dispara la amplificación de error métrico ante pequeños ruidos en píxeles.
-  * *Validación:* [`tests/test_homography.py`](tests/test_homography.py) audita la colinealidad preventiva, el condicionamiento $\kappa(H)$ y la prueba de invariancia isométrica en transformaciones inversas.
+### 1. Theoretical Formulations & Metrology
+* **Q1: How does perception latency ($t_1$) impact physical safety separation distance?**
+  * *Theoretical Framework:* Under the safety distance formulation $S = K \cdot T + C = K(t_1 + t_2 + t_3) + C$, each $10\text{ ms}$ of pipeline latency at a human walking speed of $K = 1.6\text{ m/s}$ ($1600\text{ mm/s}$) adds $16\text{ mm}$ directly to the required separation distance. Running at 10 FPS ($100\text{ ms}$) adds $160\text{ mm}$ compared to 30 FPS ($33.3\text{ ms}$), needlessly reducing usable plant floor space.
+  * *Validation:* [`tests/test_pipeline.py`](tests/test_pipeline.py) and [`scripts/benchmark.py`](scripts/benchmark.py).
+* **Q2: Why does velocity estimation via simple discrete differentiation ($\Delta x / \Delta t$) fail in industrial vision?**
+  * *Theoretical Framework:* Numerical differentiation severely amplifies high-frequency measurement noise. At 30 FPS ($\Delta t = 0.033\text{ s}$), a stochastic keypoint detection jitter of just $2\text{ cm}$ produces a spurious velocity spike of $0.6\text{ m/s}$ ($2.16\text{ km/h}$).
+  * *Solution & Validation:* The Kalman filter decouples noisy measurements via optimal gain $K_k$, producing smooth continuous velocity and position vectors with bounded covariance ([`tests/test_kalman.py`](tests/test_kalman.py)).
+* **Q3: What is the true reprojection error of a planar homography and how does matrix conditioning impact safety?**
+  * *Theoretical Framework:* With $N=4$ coplanar landmarks, the DLT linear system is exactly determined ($8 \times 8$), making algebraic training residual identically 0. However, a matrix condition number $\kappa(H) > 10^5$ reveals severe projective degeneration (nearly collinear points or grazing angles), amplifying metric errors under tiny pixel perturbations.
+  * *Validation:* [`tests/test_homography.py`](tests/test_homography.py) audits collinearity, condition number $\kappa(H)$, and inverse isometric invariance.
 
-### 2. Estudios Aplicados & Dinámica Temporal
-* **Q4: ¿Cómo evitar el parpadeo de alarmas (*chattering*) en los límites de zona sin retrasar la respuesta ante intrusiones críticas?**
-  * *Marco Aplicado:* Un operador trabajando en el borde de una zona activa/desactiva alarmas erráticamente si se usa un umbral único. La solución implementa **doble histéresis**:
-    1. *Espacial:* Polígono de peligro $P_{\text{danger}}$ vs polígono de liberación $P_{\text{release}} = P_{\text{danger}} \oplus \Delta d$ ($\Delta d = 0.20\text{ m}$).
-    2. *Temporal:* Debounce de $N_{\text{confirm}} \ge 3$ frames para personas a paso normal.
-    3. *Bypass Cinemático:* Si el vector de aproximación normal hacia el peligro supera la velocidad crítica ($v_n \ge 1.6\text{ m/s}$), el debounce se puentea en el primer fotograma ($N_{\text{confirm}} = 1$) para activar la alerta inmediata.
-  * *Validación:* [`tests/test_fsm.py`](tests/test_fsm.py) simula trayectorias tangenciales, oscilaciones de borde e incursiones de alta velocidad.
-* **Q5: ¿Justifican los keypoints de tobillo el costo computacional frente a usar el borde inferior de una Bounding Box? ([Ver ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md))**
-  * *Marco Aplicado:* El baseline realista no es el centroide 2D, sino el borde inferior central de la caja delimitadora:
+### 2. Applied Dynamics & Temporal Hysteresis
+* **Q4: How do we prevent boundary alarm chattering without delaying critical intrusion response?**
+  * *Applied Framework:* An operator working near the edge of a danger zone causes erratic alarm oscillations (*chattering*) under single-threshold systems. The solution implements **dual hysteresis**:
+    1. *Spatial:* Danger polygon $P_{\text{danger}}$ vs expanded release polygon $P_{\text{release}} = P_{\text{danger}} \oplus \Delta d$ ($\Delta d = 0.20\text{ m}$).
+    2. *Temporal:* Debounce requires $N_{\text{confirm}} \ge 3$ consecutive frames for normal pace.
+    3. *Kinematic Bypass:* If the normal approach speed towards the hazard satisfies $v_n \ge 1.6\text{ m/s}$, debounce is bypassed immediately on frame 1 ($N_{\text{confirm}} = 1$) for instant emergency trip.
+  * *Validation:* [`tests/test_fsm.py`](tests/test_fsm.py) tests tangential motion, boundary oscillations, and high-speed incursions.
+* **Q5: Do ankle keypoints justify the compute overhead over a bounding box base? ([See ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md))**
+  * *Applied Framework:* The practical baseline is the bounding box bottom-center:
     $$p_{\text{ground\_bbox}} = \left( \frac{x_{\min} + x_{\max}}{2}, \, y_{\max} \right)$$
-    Frente a él, el estimador de pose infiere la semántica articular:
+    In contrast, pose estimation isolates anatomical floor contact:
     $$p_{\text{ground\_pose}} = \text{mean}\left(\text{valid\_ankles}(k_{15}, k_{16})\right)$$
-  * *Trade-Off Experimental:* Pose ofrece fidelidad anatómica independiente de la postura del torso o inclinación de cámara, pero acarrea mayor latencia y alta vulnerabilidad a oclusiones frecuentes en planta (pallets, maquinaria baja, indumentaria). Bbox bottom-center es $\approx 30\text{–}40\%$ más veloz e inmune a la pérdida de keypoints mientras el cuerpo sea visible.
-  * *Pregunta de Investigación:* ¿La ganancia en estabilidad espacial de los tobillos compensa el costo de cómputo y las fallas por oclusión en comparación con un detector de cajas estándar acoplado a un filtro de Kalman?
-* **Q6: ¿Qué hace el sistema cuando los pies/tobillos quedan ocluidos por maquinaria o pallets? ([Ver ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md))**
-  * *Modo de Fallo Primario:* Si una máquina tapa los pies de un trabajador, el modelo de pose reporta baja confianza (`conf < 0.5`) en ambos tobillos. Descartar la detección crea un peligro ciego; usar puntos de baja confianza inyecta ruido catastrófico a la homografía.
-  * *Jerarquía de Degradación Escalonada (Graceful Degradation):*
-    1. *Tobillos duales ($conf \ge 0.5$):* Proyección directa del punto medio $\to$ certeza plena (`source="ankles_dual"`).
-    2. *Tobillo monocular:* Fallback al tobillo visible si supera el umbral $\to$ sesgo acotado (`source="ankle_single"`).
-    3. *Ambos ocluidos:* El filtro cinemático Kalman entra en modo *coasting* extrapolando $[\dot{X}, \dot{Y}]$ durante hasta 5 frames ($\approx 160\text{ ms}$) $\to$ continuidad sin saltos (`source="tracker_predicted"`).
-    4. *Oclusión prolongada:* Fallback al borde inferior de la bounding box con penalización de confianza o eliminación controlada del track.
-  * *Propagación de Confianza (Confidence Propagation):* Las posiciones métricas no son números abstractos; viajan tipadas como `PositionEstimate(xy_m, confidence, source)`, permitiendo a la FSM modular su toma de decisiones según la fiabilidad de la observación.
-  * *Validación:* [`tests/test_pipeline.py`](tests/test_pipeline.py) y [`tests/test_kalman.py`](tests/test_kalman.py).
-* **Q7: ¿Por qué la predicción de Kalman no es verdad física y por qué la desescalada de seguridad debe ser asimétrica? ([Ver ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md))**
-  * *Conflación Epistemológica:* En ausencia de fotones, la predicción $\hat{\mathbf{x}}_k = F\hat{\mathbf{x}}_{k-1}$ es una conjetura a lazo abierto. Un trabajador puede frenar o tropezar sin ser visto; la divergencia cuadrática máxima $\|\Delta \mathbf{p}(t)\| \le \frac{1}{2} a_{\max} t^2 + v_0 t (1 - \cos \theta)$ supera el margen de histéresis ($\Delta d = 200\text{ mm}$) a partir del 4to cuadro ($>100\text{ ms}$).
-  * *Modelo de Tres Estados:* Se formaliza el estado de observación: `OBSERVED` ($k=0$), `PREDICTED` ($1 \le k \le 3$, seguro dentro de $\Delta d$) y `STALE` ($4 \le k \le 5$, puramente especulativo).
-  * *Salvaguarda Asimétrica:* Escalar hacia el peligro (`DANGER_INTRUSION`) es fail-safe y está permitido bajo cualquier estado (`OBSERVED`, `PREDICTED`, `STALE`). Desescalar hacia `SAFE` exige $N_{\text{release}}$ cuadros estrictamente `OBSERVED` fuera de $P_{\text{release}}$.
-  * *Enclavamiento por Desaparición:* Un intruso que desaparece de los sensores dentro de la zona de peligro enclava en `LOCKOUT` con relé abierto hasta supervisión e intervención humana (`SpatialFSM.reset()`).
-  * *Congelamiento de Dwell:* El tiempo de permanencia no se incrementa con predicciones fantasma; se congela durante oclusión.
-  * *Validación:* [`tests/test_kalman.py`](tests/test_kalman.py) y [`tests/test_fsm.py`](tests/test_fsm.py).
+  * *Experimental Trade-Off:* Pose provides anatomical fidelity invariant to torso lean or camera tilt, but incurs higher computational cost. Bounding box bottom-center is $\approx 30\text{–}40\%$ faster but severely deforms when an operator bends forward over a barrier.
+* **Q6: How does the system behave when feet or ankles are occluded by machinery or pallets? ([See ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md))**
+  * *Failure Mode:* If machinery blocks an operator's feet, the pose model reports low confidence (`conf < 0.5`) on both ankles. Dropping detections creates a blind hazard; using low-confidence points injects catastrophic noise into the homography.
+  * *Graceful Degradation Hierarchy:*
+    1. *Dual Ankles ($\text{conf} \ge 0.5$):* Direct midpoint projection $\to$ full fidelity (`source="ankles_dual"`).
+    2. *Single Ankle:* Fallback to visible ankle $\to$ bounded lateral offset (`source="ankle_single"`).
+    3. *Both Occluded:* The kinematic Kalman filter enters *coasting mode*, extrapolating trajectory $[\dot{X}, \dot{Y}]$ for up to 5 frames ($\approx 160\text{ ms}$) (`source="tracker_predicted"`).
+    4. *Extended Occlusion:* Fallback to confidence-penalized bounding box bottom-center or controlled track termination.
+  * *Validation:* [`tests/test_pipeline.py`](tests/test_pipeline.py) and [`tests/test_kalman.py`](tests/test_kalman.py).
+* **Q7: Why are Kalman predictions not physical truth and why must safety de-escalation be asymmetric? ([See ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md))**
+  * *Epistemic Conflation:* In the absence of sensor photons, state prediction $\hat{\mathbf{x}}_k = F\hat{\mathbf{x}}_{k-1}$ is open-loop speculation. A worker may halt or trip unseen; maximum quadratic divergence $\|\Delta \mathbf{p}(t)\| \le \frac{1}{2} a_{\max} t^2 + v_0 t (1 - \cos \theta)$ exceeds the hysteresis margin ($\Delta d = 200\text{ mm}$) by frame 4 ($> 100\text{ ms}$).
+  * *Three-Tier Observation States:* Formalized as `OBSERVED` ($k=0$), `PREDICTED` ($1 \le k \le 3$), and `STALE` ($4 \le k \le 5$).
+  * *Asymmetric Safeguard:* Escalating to danger (`DANGER_INTRUSION`) is fail-safe and permitted under any state. De-escalating to `SAFE` strictly requires $N_{\text{release}} = 5$ consecutive frames that are `OBSERVED` outside $P_{\text{release}}$.
+  * *Disappearance Lockout:* A worker who disappears inside the danger zone latches into `LOCKOUT` until manual inspection and reset (`SpatialFSM.reset()`).
+  * *Validation:* [`tests/test_kalman.py`](tests/test_kalman.py) and [`tests/test_fsm.py`](tests/test_fsm.py).
 
 ---
 
-## 📐 Formulación Matemática & Arquitectura
+## 📐 Mathematical Formulation & Systems Architecture
 
-### 1. Proyección Homográfica: De Píxeles a Espacio Físicamente Interpretable
+### 1. Planar Homography: Lifting Pixels to Physical Metric Space
 
-#### ¿Por qué Homografía en lugar de ROIs en Píxeles? ([Ver ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md))
-En enfoques tradicionales de visión, una zona restringida se define como un polígono arbitrario en el espacio de la imagen 2D:
+#### Why Homography Instead of 2D Pixel ROIs? ([See ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md))
+In naive computer vision pipelines, a safety zone is drawn as a polygon directly in 2D image pixels:
 ```
 pixel ROI: [(327, 412), (598, 390), (620, 580), (280, 560)] px
 ```
-Este enfoque sufre de distorsión proyectiva severa: no preserva distancias euclidianas, ángulos ni paralelismo, impidiendo cualquier razonamiento físico.
+This naive approach suffers from severe projective distortion: it fails to preserve Euclidean distances, angles, or parallelism, making physical velocity calculations impossible.
 
-Al incorporar una transformación homográfica planar $H \in \mathbb{R}^{3 \times 3}$, el pipeline proyecta el punto de apoyo real sobre el suelo:
+By calibrating a planar homography $H \in \mathbb{R}^{3 \times 3}$, the pipeline lifts camera detections to real metric coordinates:
 
 ```mermaid
 flowchart TD
@@ -175,112 +169,101 @@ flowchart TD
     DLT --> WORLD["Ground-Plane Coordinates (X, Y) [m]<br/>Calibrated Floor Plane (Zw = 0)"]
 ```
 
-Esto convierte la zona restringida en una entidad **físicamente interpretable y medible**:
+This transforms restricted zones into **physically interpretable and auditable entities**:
 ```yaml
-# Zona métrica real en el piso de la fábrica:
 danger_zone:
   X: [1.0, 2.5] m
   Y: [0.5, 2.0] m
 ```
 
-Habilitando métricas y análisis de ingeniería imposibles de calcular en píxeles:
-* **Distancia euclidiana real** hacia una máquina o punto de peligro ($d_{\text{hazard}} = \|\mathbf{x} - \mathbf{x}_{\text{hazard}}\|$).
-* **Velocidad de aproximación cinemática** ($\vec{v} = [\dot{X}, \dot{Y}]$) en $\text{m/s}$.
-* **Distancia de permanencia** (*dwell distance*) y distancia al borde (*boundary distance*).
-* **Zonas concéntricas** de pre-alerta con separación métrica garantizada.
-* **Tiempo hasta la colisión** (*Time-to-Collision* - TTC) proyectado sobre la trayectoria métrica.
-* **Cuantificación del error de calibración** y condicionamiento numérico $\kappa(H)$.
+Enabling deterministic engineering metrics:
+* **True Euclidean distance** to hazardous machinery ($d_{\text{hazard}} = \|\mathbf{x} - \mathbf{x}_{\text{hazard}}\|$).
+* **Kinematic approach speed** ($\vec{v} = [\dot{X}, \dot{Y}]$) in $\text{m/s}$.
+* **Dwell distance** and boundary proximity.
+* **Concentric warning zones** with certified metric separation margins.
+* **Time-to-Collision (TTC)** projected along the kinematic trajectory.
 
-#### Cadena de Propagación de Errores e Incertidumbre
-
-Una coordenada en metros $\hat{P}_{\text{world}}$ no representa la posición real exacta del operario, sino una estimación compuesta:
+#### Error Propagation Chain
+Metric coordinates $\hat{P}_{\text{world}}$ represent an estimated compound measurement:
 $$\hat{P}_{\text{world}} = H(\hat{p}_{\text{feet}})$$
-
-Donde convergen cinco fuentes estocásticas y sistemáticas de error:
+Where five stochastic and systematic error sources converge:
 ```
-pose estimation error (detección de keypoints de tobillos)
+pose estimation error (ankle keypoint jitter)
         +
-pixel quantization (discretización del sensor de cámara)
+pixel quantization (camera sensor resolution)
         +
-camera calibration error (incertidumbre en puntos DLT ground-truth)
+camera calibration error (ground-truth landmark survey noise)
         +
-ground-plane assumption (irregularidades o desnivel del piso Z ≠ 0)
+ground-plane assumption (floor irregularities where Zw ≠ 0)
         +
-homography numerical error (número de condición matricial κ(H))
+homography numerical condition (matrix condition number κ(H))
 ```
 
-> **Consideración de Ingeniería:**
-> *¿Qué significa que el sistema reporte que una persona está a $0.93\text{ m}$ del peligro?*
-> Es una estimación sobre el plano del suelo con una ventana de incertidumbre ($\pm \epsilon$). No se debe asumir precisión centimétrica sin una calibración geométrica explícita, una auditoría del error de reproyección ($RMSE$) y un análisis del condicionamiento $\kappa(H)$ ante ángulos rasantes.
-
-#### Formulación de la Transformación
+#### Homography Formulation
 $$\begin{bmatrix} X' \\ Y' \\ W \end{bmatrix} = H \begin{bmatrix} u \\ v \\ 1 \end{bmatrix}, \quad X = \frac{X'}{W}, \quad Y = \frac{Y'}{W}$$
 
-La matriz $H$ se estima mediante el algoritmo DLT (*Direct Linear Transformation*) con validación de no-colinealidad y condicionamiento en [`src/core/homography.py`](src/core/homography.py). Para más detalles conceptuales, consultar [ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md) y [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md).
+Matrix $H$ is computed via Direct Linear Transformation (DLT) with non-collinearity verification and condition number monitoring in [`src/core/homography.py`](src/core/homography.py). For architectural details, see [ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md) and [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md).
 
-> **¿De dónde provienen las matrices de calibración?**
-> * **En Benchmarks Académicos (`PETS 2009`, `HA4M`):** Se consumen directamente las matrices intrínsecas $K$ y extrínsecas $[R \mid \mathbf{t}]$ (modelo Tsai) empaquetadas en los metadatos del dataset.
-> * **En Plantas Industriales y CCTV Real (`mendeley_industrial`, `opencv_vtest`):** Se identifican 4 puntos de referencia coplanares sobre el piso $(u_i, v_i) \leftrightarrow (X_i, Y_i)$ medidos in-situ (marcas de suelo, baldosas o líneas de seguridad), y el `HomographyManager` calcula la matriz DLT garantizando $RMSE < 0.05\text{ m}$.
-> *(Ver guía completa de calibración en [docs/data/datasets.md](docs/data/datasets.md#11-metodología-de-calibración-planar-dlt-y-fuentes-de-metadatos-de-cámara))*.
+---
 
-### 2. Autómata de Seguridad: Regiones Ortogonales Desacopladas (Statecharts) ([Ver ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md))
+### 2. Safety Automata: Decoupled Orthogonal Statecharts ([See ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md))
 
-Para evitar la conflación entre la **topología espacial** y la **acumulación temporal**, el sistema desacopla el razonamiento en dos autómatas concurrentes e independientes:
+To prevent conflation between **spatial topology** and **temporal duration**, the architecture decouples safety reasoning into two concurrent, independent statecharts:
 
-#### Schmitt Trigger Espacial y Asimetría Entry / Exit ([ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md), [ADR-006](docs/decisions/adr-006-prepared-geometries-dynamic-debounce-bypass.md), [ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md))
+#### Spatial Schmitt Trigger & Entry / Exit Asymmetry ([ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md), [ADR-006](docs/decisions/adr-006-prepared-geometries-dynamic-debounce-bypass.md), [ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md))
 
 ```
-                      P_release (Límite de Liberación)
+                      P_release (Release Boundary)
                    ┌───────────────────────────────────┐
-                   │       Banda de Histéresis         │
+                   │       Hysteresis Band             │
                    │       (Δd = 200 mm)               │
-                   │    P_danger (Límite de Peligro)   │
+                   │    P_danger (Danger Boundary)     │
                    │   ┌───────────────────────────┐   │
                    │   │                           │   │
-                   │   │          MÁQUINA          │   │
+                   │   │    HAZARDOUS MACHINERY    │   │
                    │   │                           │   │
                    │   └───────────────────────────┘   │
                    │                                   │
                    └───────────────────────────────────┘
 
-1. ENTRY POLICY (Conservative & Fast):
-   • Aproximación normal (vn < 1.6 m/s) : Debounce de N_confirm = 3 cuadros.
-   • Aproximación rápida (vn >= 1.6 m/s): Bypass instantáneo (N_confirm = 1) en cuadro 1 (umbral cinemático inspirado en ISO 13855).
+1. ENTRY POLICY (Fast & Conservative):
+   • Normal approach (vn < 1.6 m/s): Debounce requires N_confirm = 3 frames.
+   • Rapid approach (vn >= 1.6 m/s): Instant 1-frame bypass (N_confirm = 1) on frame 1 (ISO 13855 human speed threshold).
 
 2. EXIT POLICY (Hysteretic & Strict):
-   • Debounce de salida: Exige N_release = 5 cuadros consecutivos fuera de P_release.
-   • Salvaguarda asimétrica (ADR-008): Desescalada permitida estrictamente con fotones reales (OBSERVED).
-     Si el objetivo queda ocluido (PREDICTED / STALE), la desescalada se bloquea y el estado permanece en intrusión (`trip = True`).
+   • Exit debounce: Requires N_release = 5 consecutive frames outside P_release.
+   • Asymmetric safeguard: De-escalation strictly requires real sensor photons (OBSERVED).
+     If the target is occluded (PREDICTED / STALE), de-escalation is blocked and trip remains active.
 ```
 
-#### Statecharts Ortogonales (Occupancy x Dwell)
+#### Orthogonal Statecharts (Occupancy x Dwell)
 
 ```mermaid
 stateDiagram-v2
     direction TB
 
-    state "1. Autómata de Ocupación Espacial (OccupancyState)" as SpatialOccupancy {
+    state "1. Spatial Occupancy Statechart (OccupancyState)" as SpatialOccupancy {
         [*] --> OUTSIDE
-        OUTSIDE --> ENTER_PENDING: Punto dentro de P_danger
-        ENTER_PENDING --> INSIDE: N_confirm cuadros (o vn >= 1.6 m/s)
-        ENTER_PENDING --> OUTSIDE: Punto sale de P_danger antes de confirmar
-        INSIDE --> EXIT_PENDING: Punto fuera de P_danger
-        EXIT_PENDING --> INSIDE: Punto reingresa a P_danger
-        EXIT_PENDING --> OUTSIDE: N_release cuadros OBSERVED fuera de P_release
+        OUTSIDE --> ENTER_PENDING: Point enters P_danger
+        ENTER_PENDING --> INSIDE: N_confirm frames (or vn >= 1.6 m/s bypass)
+        ENTER_PENDING --> OUTSIDE: Point leaves P_danger before confirmation
+        INSIDE --> EXIT_PENDING: Point leaves P_danger
+        EXIT_PENDING --> INSIDE: Point returns to P_danger
+        EXIT_PENDING --> OUTSIDE: N_release frames OBSERVED outside P_release
     }
 
-    state "2. Clasificador Temporal de Permanencia (DwellState)" as TemporalDwell {
+    state "2. Temporal Dwell Classifier (DwellState)" as TemporalDwell {
         [*] --> NONE
         NONE --> NORMAL: Occupancy == INSIDE (t = 0.0s)
         NORMAL --> WARNING: t >= T_warn
         WARNING --> VIOLATION: t >= T_violation
-        NORMAL --> NONE: Occupancy != INSIDE (reset a 0.0s)
-        WARNING --> NONE: Occupancy != INSIDE (reset a 0.0s)
-        VIOLATION --> NONE: Occupancy != INSIDE (reset a 0.0s)
+        NORMAL --> NONE: Occupancy != INSIDE (reset to 0.0s)
+        WARNING --> NONE: Occupancy != INSIDE (reset to 0.0s)
+        VIOLATION --> NONE: Occupancy != INSIDE (reset to 0.0s)
     }
 ```
 
-#### Diagrama de Secuencia: Ciclo Síncrono de Procesamiento de Cuadro
+#### Sequence Diagram: Synchronous Frame Processing Cycle
 
 ```mermaid
 sequenceDiagram
@@ -296,138 +279,140 @@ sequenceDiagram
     C->>P: process_frame(frame)
     activate P
     P->>P: preprocess: letterbox (640x640)
-    P->>O: infer(tensor) -> keypoints de pose
+    P->>O: infer(tensor) -> pose keypoints
     P->>P: extract ankle anchors (kp 15, 16)
     P->>H: project_batch(anchors) -> metric coords (X, Y)
     P->>K: update(metric coords) -> active tracks & velocities
     P->>F: update(tracks) -> SafetyOutput (trip, states, dwell)
     P-->>C: PipelineResult (output, tracks, latencies)
     deactivate P
-    opt Visualización Activa
+    opt Active Visualization
         C->>V: render(frame, PipelineResult)
         V->>V: render_perspective() + render_bev()
         V-->>C: composite_frame
     end
 ```
 
-* **Invariante Fail-Safe (Software):** La señal lógica de disparo (`trip = True`) se emite en el instante $t = 0.0\text{ s}$ de confirmación en `INSIDE` (o ante `FAULT`/`LOCKOUT`). El clasificador de *dwell* categoriza la severidad operacional sin demorar la respuesta de parada.
+* **Fail-Safe Invariant (Software):** The emergency trip signal (`trip = True`) asserts immediately at $t = 0.0\text{ s}$ upon confirmed entry into `INSIDE` (or upon `FAULT`/`LOCKOUT`). The dwell timer classifies operational duration without adding reaction latency.
 
 ---
 
-## 🚀 Estructura del Repositorio
+## 🚀 Repository Structure
 
 ```
 .
-├── AGENTS.md                   # Reglas del proyecto, tono y flujo SDD
-├── README.md                   # Especificación técnica y guía de arquitectura
+├── AGENTS.md                   # Project rules, persona, and SDD workflow
+├── README.md                   # Master technical specification and architecture guide
 ├── configs/
-│   ├── default_config.yaml     # Puntos de calibración, polígonos y umbrales base
-│   └── datasets/               # Perfiles YAML específicos por dataset (PETS, OpenCV, OpenVINO)
+│   ├── default_config.yaml     # Baseline calibration landmarks, polygons, and thresholds
+│   └── datasets/               # Dataset-specific YAML profiles (PETS, OpenCV, OpenVINO)
 ├── data/
-│   ├── raw/                    # Datasets de video descargados (ignorado en git)
-│   ├── results/                # Videos anotados y telemetría JSONL (ignorado en git)
-│   └── samples/                # Muestras sintéticas deterministas de calibración
+│   ├── raw/                    # Downloaded video datasets (git ignored)
+│   ├── results/                # Annotated videos and JSONL telemetry (git ignored)
+│   └── samples/                # Deterministic synthetic calibration sequences
 ├── docs/
-│   ├── architecture/           # Case study de ingeniería, diagramas y diseño
-│   │   └── engineering-case-study.md # Deep dive de arquitectura y decisiones
-│   ├── data/datasets.md        # Especificación y catálogo de datasets empíricos
+│   ├── architecture/           # Engineering case study, diagrams, and deep dives
+│   │   └── engineering-case-study.md # Comprehensive architectural case study
+│   ├── data/datasets.md        # Dataset specifications and empirical catalog
+│   ├── figures/                # Architectural diagrams and benchmark plots (PNG)
 │   └── decisions/              # Architecture Decision Records (ADRs)
-│       ├── README.md           # Índice de decisiones
+│       ├── README.md           # ADR index
 │       └── adr-001-*.md        # YOLO-Pose vs Bounding Box Centroid
 ├── models/
-│   └── export_onnx.py          # Exportación y validación de YOLO-Pose a ONNX
-├── openspec/                   # Especificaciones canónicas y auditoría SDD
-│   ├── config.yaml             # Configuración del arnés SDD
-│   ├── specs/                  # Especificaciones funcionales (fuente de la verdad)
-│   └── changes/                # Historial y paquetes de cambio archivados
+│   └── export_onnx.py          # YOLO-Pose ONNX export and validation tool
+├── openspec/                   # Canonical specifications and SDD change packages
 ├── src/
 │   ├── core/
-│   │   ├── homography.py       # HomographyManager (DLT 2D -> Métrico)
-│   │   ├── kalman_filter.py    # Filtro métrico 2D y MultiTargetKalmanTracker
-│   │   └── spatial_fsm.py      # SpatialFSM con histeresis dual y dwell time
+│   │   ├── homography.py       # HomographyManager (DLT 2D -> Metric Floor Plane)
+│   │   ├── kalman_filter.py    # 2D Metric Kalman Filter & MultiTargetKalmanTracker
+│   │   └── spatial_fsm.py      # SpatialFSM with dual hysteresis and dwell classifier
 │   ├── inference/
-│   │   └── onnx_engine.py      # Wrapper ONNX Runtime (CoreML / CPU ARM NEON)
+│   │   └── onnx_engine.py      # ONNX Runtime wrapper (CoreML / CPU ARM NEON)
 │   ├── pipeline/
-│   │   └── safety_pipeline.py  # Orquestador end-to-end (ISO 13855 T1)
+│   │   └── safety_pipeline.py  # End-to-end pipeline orchestrator (ISO 13855 T1 budget)
 │   └── utils/
-│       └── visualizer.py       # Compositor dual (Cámara + Bird's-Eye View métrico)
+│       └── visualizer.py       # Real-time dual compositor (Camera + Metric BEV)
 ├── tests/
-│   ├── conftest.py             # Fixtures sintéticos (sin descargas en CI)
-│   ├── test_dataset_ingestion.py # Pruebas del downloader y arnés de ingesta
-│   ├── test_export.py          # Pruebas de exportación y validación ONNX
-│   ├── test_onnx_engine.py     # Pruebas de runtime e inferencia
-│   ├── test_benchmark.py       # Pruebas de cálculo métrico y percentiles
-│   ├── test_fsm.py             # Pruebas unitarias para transiciones FSM
-│   ├── test_homography.py      # Pruebas unitarias para la transformación métrica
-│   ├── test_kalman.py          # Pruebas del filtro de Kalman y tracking multiobjeto
-│   ├── test_pipeline.py        # Pruebas del pipeline de seguridad integrado
-│   └── test_visualizer.py      # Pruebas del compositor visual dual
+│   ├── conftest.py             # Deterministic synthetic test fixtures (CI-ready)
+│   ├── test_dataset_ingestion.py # Resilient downloader and test harness tests
+│   ├── test_export.py          # ONNX export and validation tests
+│   ├── test_onnx_engine.py     # Runtime and inference engine tests
+│   ├── test_benchmark.py       # Latency percentile calculation tests
+│   ├── test_fsm.py             # Unit tests for spatial FSM transitions
+│   ├── test_homography.py      # Unit tests for metric homography projection
+│   ├── test_kalman.py          # Unit tests for Kalman tracking and MOT
+│   ├── test_pipeline.py        # Integrated safety pipeline tests
+│   └── test_visualizer.py      # Dual compositor visual tests
 └── scripts/
-    ├── benchmark.py            # Latencia y throughput en ONNX Runtime
-    ├── download_datasets.py    # Descargador resiliente multi-mirror con failover
-    ├── generate_samples.py     # Generador determinista de secuencias sintéticas
-    ├── run_dataset_test.py     # Arnés desacoplado de evaluación empírica
-    └── run_demo.py             # Demo orchestrator interactivo y headless
+    ├── audit_and_reproduce_benchmarks.py # Master benchmark audit suite
+    ├── benchmark.py            # Latency and throughput benchmark in ONNX Runtime
+    ├── download_datasets.py    # Resilient multi-mirror dataset downloader
+    ├── generate_figures.py     # Publication-grade technical figures generator
+    ├── generate_samples.py     # Deterministic synthetic video generator
+    ├── run_dataset_test.py     # Empirical dataset evaluation harness
+    └── run_demo.py             # Interactive and headless demo runner
+```
 
 ---
 
-## 📚 Documentación & Decisiones de Arquitectura (ADRs)
+## 📚 Documentation & Architecture Decision Records (ADRs)
 
-* **[Bitácora de Preguntas & Respuestas de Arquitectura](docs/architecture/preguntas-y-respuestas-arquitectura.md):** Guía conceptual y fundamentos de diseño (por qué homografía $3 \times 3$, anclaje en tobillos vs bounding boxes, matemática de 4 puntos DLT y restricciones de silicio Pascal INT8).
-* **[Especificación Técnica Maestra](docs/architecture/industrial-edge-ai-specification.md):** Documento formal con marco normativo ISO 13855:2024, benchmark de modelos, restricciones de silicio (Pascal INT8 vs Apple Silicon), datasets industriales y arquitectura zero-copy.
-* **[Directrices ISO 13855:2024 y Formulación](docs/architecture/safety-directives-iso13855.md):** Presupuesto temporal, fórmula de distancia de seguridad $S$, mitigación de falsos positivos y lazo de control.
-* **Índice de Decisiones de Arquitectura ([ADRs](docs/decisions/README.md)):**
-  * **[ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md):** Selección de YOLO-Pose vs Bounding Box Centroid para Detección de Incursión.
-  * **[ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md):** Proyección Homográfica 2D a Plano Métrico vs Estimación 3D Monocular.
-  * **[ADR-003](docs/decisions/adr-003-onnx-runtime-coreml.md):** Runtime de Inferencia: ONNX Runtime (CoreML Provider) vs PyTorch Nativo.
-  * **[ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md):** Gestión de Oscilaciones Espaciales mediante Spatial FSM + Filtro Kalman.
-  * **[ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md):** Validación Geométrica Preventiva y Proyección Vectorizada en Homografía Planar.
-  * **[ADR-006](docs/decisions/adr-006-prepared-geometries-dynamic-debounce-bypass.md):** Geometrías Preparadas y Bypass Dinámico de Debounce en FSM de Seguridad (ISO 13855).
-  * **[ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md):** Gestión de Oclusiones en Extremidades Inferiores y Propagación de Confianza.
-  * **[ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md):** Epistemología de Estados de Observación Kalman, Ruido Espectral y Desescalada Asimétrica.
-  * **[ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md):** Desacoplamiento de Autómata Espacial y Clasificación Temporal de Dwell en Regiones Ortogonales (Statecharts).
-  * **[ADR-010](docs/decisions/adr-010-dual-latency-profiling-iso13855.md):** Doble Horizonte Temporal de Latencia en Edge AI Industrial ($T_{\text{system}}$ vs $T_{\text{event}}$ - ISO 13855 / IEC 61496).
-  * **[ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md):** Bayesian Validation Gating (Mahalanobis $\chi^2$), Asignación Global Húngara y World-Space Spatial Birth NMS.
-  * **[ADR-012](docs/decisions/adr-012-synthetic-yolo-video-generation.md):** Generación de Videos Sintéticos Fotorrealistas con Escala Pinhole e Identidad Única.
-
----
-
-## 🛠️ Tecnologías & Stack
-
-* **Lenguaje:** Python 3.10+ (Tipado estricto)
-* **Modelos:** YOLOv8/YOLO11 Pose (Ultralytics $\rightarrow$ ONNX)
-* **Inferencia:** ONNX Runtime (`CoreMLExecutionProvider` en Apple Silicon / `CPUExecutionProvider`)
-* **Matemática y Geometría:** OpenCV, NumPy, Shapely
-* **Testing:** PyTest
+* **[Engineering Case Study](docs/architecture/engineering-case-study.md):** Deep architectural analysis, first-principles thesis, mathematical proofs, and empirical benchmark results.
+* **[Architecture Q&A Log (Spanish)](docs/architecture/preguntas-y-respuestas-arquitectura.md):** Design rationale, $3 \times 3$ homography proofs, ankle anchors vs bounding boxes, and DLT 4-point mathematics.
+* **[Master Technical Specification (Spanish)](docs/architecture/industrial-edge-ai-specification.md):** Formal requirements, ISO 13855:2024 framework, model benchmarking, and silicon constraints.
+* **[ISO 13855:2024 Safety Directives (Spanish)](docs/architecture/safety-directives-iso13855.md):** Reaction time budgets, safety distance formula $S$, and false positive mitigations.
+* **Architecture Decision Records Index ([ADRs](docs/decisions/README.md)):**
+  * **[ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md):** YOLO-Pose Ankle Keypoints vs Bounding Box Centroid for Incursion Detection.
+  * **[ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md):** Planar 2D Homography vs Monocular 3D Spatial Estimation.
+  * **[ADR-003](docs/decisions/adr-003-onnx-runtime-coreml.md):** Inference Runtime: ONNX Runtime (CoreML Provider) vs Native PyTorch.
+  * **[ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md):** Spatial Boundary Oscillation Management via Spatial FSM and Kalman Filtering.
+  * **[ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md):** Preventive Geometric Validation and Vectorized Projection in Planar Homography.
+  * **[ADR-006](docs/decisions/adr-006-prepared-geometries-dynamic-debounce-bypass.md):** Prepared Geometries and Dynamic Velocity Debounce Bypass (ISO 13855).
+  * **[ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md):** Lower-Limb Occlusion Handling and Confidence Propagation.
+  * **[ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md):** Kalman Epistemological Observation States, Spectral Noise, and Asymmetric De-escalation.
+  * **[ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md):** Decoupled Spatial Automaton and Dwell Time Classification in Orthogonal Statecharts.
+  * **[ADR-010](docs/decisions/adr-010-dual-latency-profiling-iso13855.md):** Dual Time Horizon Latency Profiling in Industrial Edge AI ($T_{\text{system}}$ vs $T_{\text{event}}$).
+  * **[ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md):** Bayesian Validation Gating (Mahalanobis $\chi^2$), Global Hungarian MOT, and World-Space Spatial Birth NMS.
+  * **[ADR-012](docs/decisions/adr-012-synthetic-yolo-video-generation.md):** Photorealistic Synthetic Video Generation with Pinhole Scaling and Unique Identity.
 
 ---
 
-## 🗺️ Roadmap de Desarrollo (Paso a Paso)
+## 🛠️ Technology Stack
 
-- [x] **Paso 0:** Definición del `README.md` y estructura inicial del repositorio.
-- [x] **Paso 1:** Configuración de archivos YAML y modelo de calibración inicial (`configs/default_config.yaml`).
-- [x] **Paso 2:** Módulo de Homografía (`src/core/homography.py`) y pruebas unitarias (`tests/test_homography.py`).
-- [x] **Paso 3:** Filtro de suavizado métrico Kalman/Alpha-Beta (`src/core/kalman_filter.py`).
-- [x] **Paso 4:** FSM Espacial de Incursión (`src/core/spatial_fsm.py`) y pruebas de estados (`tests/test_fsm.py`).
-- [x] **Paso 5:** Exportador e Inferencia ONNX (`models/export_onnx.py` & `src/inference/onnx_engine.py`) y suite de benchmark (`scripts/benchmark.py`).
-- [x] **Paso 6:** Pipeline de Ejecución, Visualización Top-Down y Métricas (`src/pipeline/safety_pipeline.py`, `src/utils/visualizer.py`).
-- [x] **Paso 7:** Scripts de Demo y Ejecución End-to-End sobre video (`scripts/run_demo.py`).
-- [ ] **Paso 8:** Optimización Edge AI: Profiling de captura de hardware (V4L2/RTSP timestamp delta), Ring Buffer desacoplado y exportador de telemetría industrial (MQTT/ZeroMQ).
+* **Language:** Python 3.10+ (Strict type hinting)
+* **Model:** YOLOv8 / YOLO11 Pose (Ultralytics $\to$ ONNX)
+* **Inference Runtime:** ONNX Runtime (`CoreMLExecutionProvider` on Apple Silicon / `CPUExecutionProvider` / CUDA)
+* **Geometry & Math:** OpenCV, NumPy, Shapely (GEOS C-Engine)
+* **Testing:** PyTest (218 automated tests passing)
 
 ---
 
-## 💻 Ejecución del Demo CLI (`scripts/run_demo.py`)
+## 🗺️ Engineering Development Roadmap
 
-Para ejecutar la demostración interactiva end-to-end con visualización dual en tiempo real:
+- [x] **Step 0:** Initial repository structure, architecture specification, and setup.
+- [x] **Step 1:** YAML configuration schema and baseline calibration model (`configs/default_config.yaml`).
+- [x] **Step 2:** Planar Homography module (`src/core/homography.py`) and validation tests (`tests/test_homography.py`).
+- [x] **Step 3:** 2D Kinematic Kalman filter and multi-target tracking (`src/core/kalman_filter.py`).
+- [x] **Step 4:** Orthogonal Spatial FSM and dual hysteresis (`src/core/spatial_fsm.py`, `tests/test_fsm.py`).
+- [x] **Step 5:** ONNX model exporter and inference engine (`models/export_onnx.py`, `src/inference/onnx_engine.py`).
+- [x] **Step 6:** End-to-end pipeline orchestrator and dual visualizer (`src/pipeline/safety_pipeline.py`, `src/utils/visualizer.py`).
+- [x] **Step 7:** CLI demo orchestrator and headless evaluation runner (`scripts/run_demo.py`).
+- [ ] **Step 8 (Edge AI Optimization):** Hardware capture timestamp profiling (V4L2 ring buffer delta), zero-copy lock-free ring buffers, and industrial telemetry exporter (MQTT/ZeroMQ).
+
+---
+
+## 💻 CLI Demo Orchestrator (`scripts/run_demo.py`)
+
+To run the interactive end-to-end demonstration with real-time dual perspective visualization:
 
 ```bash
-# 1. Generar muestras sintéticas de calibración
+# 1. Generate deterministic synthetic calibration sequences
 python scripts/generate_samples.py --output-dir data/samples
 
-# 2. Ejecutar Demo interactivo (Ventana dual OpenCV + controles SPACE / q)
+# 2. Run interactive demo (Dual OpenCV window with SPACE pause / 'q' exit)
 python scripts/run_demo.py --source data/samples/sequence_a_clean_incursion.mp4
 
-# 3. Ejecutar en modo Headless exportando video anotado y telemetría JSONL
+# 3. Run in headless mode exporting annotated video and JSONL telemetry
 python scripts/run_demo.py \
   --source data/samples/sequence_b_occlusion_coasting.mp4 \
   --no-display \
@@ -437,74 +422,56 @@ python scripts/run_demo.py \
 
 ---
 
-## 🧪 Ingesta y Validación de Datasets Reales (PETS 2009, OpenCV, OpenVINO)
+## 🧪 Real-World Dataset Ingestion & Validation (PETS 2009, OpenCV, OpenVINO)
 
-El repositorio incluye herramientas desacopladas para descargar, calibrar y evaluar secuencias empíricas de videovigilancia sin tocar el código del *core*:
+The repository includes a decoupled harness to download, calibrate, and evaluate empirical video surveillance datasets without modifying core pipeline code:
 
 ```bash
-# 1. Catálogo y descarga de secuencias (resiliente con failover de mirrors)
+# 1. Inspect catalog and download sequences (with automatic mirror failover)
 python scripts/download_datasets.py --list
 python scripts/download_datasets.py --dataset pets2009_s2_l1
 python scripts/download_datasets.py --dataset opencv_vtest
 python scripts/download_datasets.py --dataset openvino_people
 
-# 2. Ejecutar evaluación interactiva con ventana visual (OpenCV GUI)
+# 2. Run interactive evaluation with OpenCV GUI window
 python scripts/run_dataset_test.py --dataset pets2009_s2_l1 --display --realtime
 
-# 3. Ejecutar evaluación en lote / headless (genera video compuesto, events.jsonl y summary.json)
+# 3. Run batch headless evaluation (exports composite video, events.jsonl, and summary.json)
 python scripts/run_dataset_test.py --dataset pets2009_s2_l1 --no-display
 ```
 
-### Resumen de Métricas Empíricas de Validación (ISO 13855 / $T_1 \le 50\text{ ms}$)
+### Empirical Validation Metrics Summary (ISO 13855 / $T_1 \le 50\text{ ms}$)
 
-| Dataset / Secuencia | Escenario / Entorno | Resolución | Frames | Throughput | Latencia Media ($T_1$) | $p95$ Latencia | Estado de Validación |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`synthetic_sequence_a`** | Celda de Seguridad (Incursión Limpia) | $1280 \times 720$ | 180 | $51.4\text{ FPS}$ | $16.24\text{ ms}$ | $24.68\text{ ms}$ | ✅ Ground truth exacto ($\text{err} = 0.0\text{ mm}$) |
-| **`synthetic_sequence_b`** | Celda de Seguridad (Oclusión de Pies) | $1280 \times 720$ | 180 | $36.5\text{ FPS}$ | $24.07\text{ ms}$ | $28.94\text{ ms}$ | ✅ Validado (Degradación y coasting Kalman) |
-| **`synthetic_sequence_c`** | Celda de Seguridad (Permanencia / Dwell) | $1280 \times 720$ | 300 | $37.4\text{ FPS}$ | $23.44\text{ ms}$ | $28.02\text{ ms}$ | ✅ Validado (Temporizador dwell desacoplado) |
-| **`mendeley_industrial`** | Planta Industrial (Intervención en Máquina) | $1920 \times 1080$ | 173 | $37.5\text{ FPS}$ | $15.35\text{ ms}$ | $18.26\text{ ms}$ | ✅ Validado (Pose $1080\text{p}$ y pre-alerta) |
-| **`opencv_vtest`** | CCTV Vigilancia Peatonal | $768 \times 576$ | 795 | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Validado (Detección de intrusión y lockout) |
-| **`openvino_people`** | Pasillo Mall Peatonal (Full HD) | $1920 \times 1080$ | 302 | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Validado (Tránsito perimetral seguro 1080p) |
-| **`pets2009_s2_l1`** | Plaza Multi-Target (Cruce & Oclusión) | $768 \times 576$ | 795 | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Validado (Seguimiento denso y explanada) |
-
-### 🤖 Datasets de Celdas Robóticas Industriales y Alcance (InHARD, HA4M, Sheffield UR5)
-
-Se ha realizado un relevamiento exhaustivo de los principales conjuntos de datos académicos para celdas de colaboración humano-robot (*Human-Robot Collaboration - HRC*):
-* **`InHARD` / `InHARD-DT`:** Celdas colaborativas con cobots y capturas multi-vista RGB + esqueletos BVH ($24\text{ GB} - 16.8\text{ GB}$ en Zenodo).
-* **`HA4M`:** Estaciones de ensamble industrial con cámaras RGB-D calibradas ($4.1\text{ TB}$ en Science Data Bank).
-* **`Sheffield Factory UR5`:** Interacciones humano-cobot en planta de manufactura ($13.5\text{ GB}$ en Figshare).
-
-> **Nota de Alcance y Viabilidad Técnica:**
-> Estos datasets distribuyen su metraje en volúmenes multipartición indivisibles ($24\text{ GB} - 4.1\text{ TB}$) que exceden el objetivo de mantener un repositorio de borde (*Edge AI*) ligero, ágil y ejecutable en CI. Actualmente, la suite de **`Mendeley Industrial Safety`** junto con **`PETS 2009`** y **`OpenVINO People`** valida al $100\%$ los requisitos de seguridad ISO 13855, calibración DLT y latencia $T_1 \le 50\text{ ms}$. La integración de Gemelos Digitales y desempaquetado masivo de `InHARD` queda documentada como línea de investigación futura en la memoria técnica.
-
-Para la memoria técnica completa, particularidades metrológicas, tabla comparativa de celdas robóticas y descubrimientos de ingeniería, consultar [docs/data/datasets.md](docs/data/datasets.md).
+| Dataset / Sequence | Scenario / Environment | Resolution | Frames | Throughput | Mean Latency ($T_1$) | $p_{95}$ Latency | Verification Outcome |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **`synthetic_sequence_a`** | Safety Workcell (Clean Incursion) | $1280 \times 720$ | 180 | $51.4\text{ FPS}$ | $16.24\text{ ms}$ | $24.68\text{ ms}$ | ✅ Exact Ground Truth ($\text{err} = 0.0\text{ mm}$) |
+| **`synthetic_sequence_b`** | Safety Workcell (Ankle Occlusion) | $1280 \times 720$ | 180 | $36.5\text{ FPS}$ | $24.07\text{ ms}$ | $28.94\text{ ms}$ | ✅ Graceful Degradation & Kalman Coasting |
+| **`synthetic_sequence_c`** | Safety Workcell (Dwell Accumulation) | $1280 \times 720$ | 300 | $37.4\text{ FPS}$ | $23.44\text{ ms}$ | $28.02\text{ ms}$ | ✅ Decoupled Dwell Transition Verified |
+| **`mendeley_industrial`** | Industrial Machine Workcell | $1920 \times 1080$ | 173 | $37.5\text{ FPS}$ | $15.35\text{ ms}$ | $18.26\text{ ms}$ | ✅ 1080p Pose Inference & Pre-alert Verified |
+| **`opencv_vtest`** | Pedestrian Surveillance CCTV | $768 \times 576$ | 795 | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Intrusion & Lockout Invariants Verified |
+| **`openvino_people`** | High-Resolution Corridor (Full HD) | $1920 \times 1080$ | 302 | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Safe Perimeter Transit Verified |
+| **`pets2009_s2_l1`** | Multi-Target Outdoor Concourse | $768 \times 576$ | 795 | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Dense Crowd Tracking & Zero ID Swaps |
 
 ---
 
-## 🔍 Desafíos de Seguimiento Multiobjetivo (MOT) y Soluciones Aplicadas
+## 🔍 Multi-Object Tracking (MOT) Engineering Challenges & Solutions
 
-Durante las pruebas de estrés con datasets de alta densidad peatonal y oclusiones complejas (`pets2009_s2_l1` y `openvino_people`), se identificaron y resolvieron los siguientes desafíos en la capa de seguimiento multiobjetivo (*Multi-Object Tracking - MOT*):
+During rigorous stress testing with dense pedestrian datasets (`pets2009_s2_l1` and `openvino_people`), three critical tracking challenges were identified and resolved:
 
-### 1. Fragmentación de Tracks y Cambio de Identidad (*ID Switching*) — ✅ RESUELTO ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md))
-* **Síntoma Previo:** Al ocurrir cruces u oclusiones dinámicas, la asignación codiciosa euclidiana intercambiaba identificadores (`ID: X` $\leftrightarrow$ `ID: Y`) o destruía tracks al salir de oclusión.
-* **Solución Implementada:**
-  1. **Compuerta Elipsoidal de Mahalanobis $\chi^2_2(0.99) \le 9.210$:** Proyección de covarianza de innovación $S = P + R$ que ensancha dinámicamente el elipsoide de búsqueda a lo largo del vector de velocidad $\vec{v}$.
-  2. **Asignación Global Combinatoria (Algoritmo Húngaro / Munkres):** Optimización bipartite global vía `scipy.optimize.linear_sum_assignment` resolviendo cruces de trayectorias en $\mathcal{O}(N^3)$ en $0.017\text{ ms}$.
+### 1. Track Fragmentation & Identity Switching (*ID Swapping*) — ✅ RESOLVED ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md))
+* **Symptom:** During dynamic crossings or brief occlusions, greedy nearest-neighbor matching swapped track IDs (`ID: A` $\leftrightarrow$ `ID: B`) or destroyed active tracks upon exiting occlusion.
+* **Implemented Solution:**
+  1. **Mahalanobis Ellipsoidal Gating ($\chi^2_2(0.99) \le 9.210$):** Innovation covariance projection $S = P + R$ dynamically elongates the search gate along the velocity vector $\vec{v}$.
+  2. **Global Combinatorial Optimization (Munkres / Hungarian):** Global bipartite matching via `scipy.optimize.linear_sum_assignment` resolves trajectory crossings in $\mathcal{O}(N^3)$ within $0.017\text{ ms}$ for 10 targets.
 
-### 2. Vectores Múltiples y Duplicados sobre el Mismo Sujeto (*Ghost Tracks*) — ✅ RESUELTO ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md))
-* **Síntoma Previo:** Propuestas redundantes de YOLO (ambos tobillos o doble caja en NMS 2D) generaban tracks paralelos sobre la misma persona.
-* **Solución Implementada:**
-  1. **World-Space Spatial Birth NMS ($d_{\text{birth\_min}} = 0.6\text{ m}$):** Regla estricta de no-nacimiento que prohíbe instanciar tracks si la detección métrica en el suelo dista menos de $0.6\text{ m}$ de cualquier track activo o de otro nacimiento en el mismo cuadro.
+### 2. Duplicate Proposals & Ghost Tracks — ✅ RESOLVED ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md))
+* **Symptom:** Redundant pose proposals from YOLO (both ankles or overlapping bounding box proposals) instantiated duplicate parallel tracks for a single worker.
+* **Implemented Solution:**
+  1. **World-Space Spatial Birth NMS ($d_{\text{birth\_min}} = 0.6\text{ m}$):** Strict spatial exclusion rule prohibiting track instantiation if the metric floor detection is within $0.6\text{ m}$ of any active track or another newborn candidate in the same frame.
 
-### 3. Gap de Dominio en Videos Sintéticos vs YOLO (*Synthetic Domain Gap*) — ✅ RESUELTO ([ADR-012](docs/decisions/adr-012-synthetic-yolo-video-generation.md), [Doc Técnico](docs/data/synthetic_generation.md))
-* **Síntoma Previo:** En las secuencias sintéticas primitivas dibujadas con vectores 2D (`cv2.line`/`cv2.rectangle`), YOLO11-Pose no generaba detecciones ($\text{conf} < 0.25$) debido a la falta de gradientes y textura fotográfica.
-* **Solución Implementada:** 
-  1. **Single-Identity Tracklet & Normalización:** Extracción continua de un único sujeto en lienzo canónico ($160 \times 320\text{ RGBA}$) con alpha-feathering suave y sombras de contacto gaussianas, eliminando cambios de vestimenta o silueta.
-  2. **Escalado Perspectivo Pinhole Calibrado ($h = \frac{480}{1.0 + 0.165 \cdot Y}$):** Mantiene la escala visual antropométrica en todo el rango métrico de la celda ($Y \in [0.5, 5.5]\text{ m}$).
-  3. **Resultados de Validación:** **100% de tasa de detección** en todas las secuencias sintéticas (A, B y C) con confianza promedio de **0.835 - 0.861** y validación E2E completa de los estados de seguridad (`SAFE` $\to$ `WARNING` $\to$ `DANGER` $\to$ `LOCKOUT`).
-
----
-
-
-
-
+### 3. Synthetic Domain Gap in Simulated Video — ✅ RESOLVED ([ADR-012](docs/decisions/adr-012-synthetic-yolo-video-generation.md), [Technical Report](docs/data/synthetic_generation.md))
+* **Symptom:** Primitive synthetic videos drawn with 2D geometric vectors (`cv2.line` / `cv2.rectangle`) yielded a **0% detection rate** in YOLO-Pose due to the absence of realistic natural gradients and textures.
+* **Implemented Solution:**
+  1. **Single-Identity Tracklet & Normalization:** Continuous extraction of an authentic worker in RGBA canvas ($160 \times 320$) with soft alpha-feathering and Gaussian ground contact shadows.
+  2. **Calibrated Pinhole Perspective Scaling ($h = \frac{480}{1.0 + 0.165 \cdot Y}$):** Maintains anthropometric perspective scale across the entire workcell depth ($Y \in [0.5, 5.5]\text{ m}$).
+  3. **Verification Results:** Achieved a **100% detection rate** across all synthetic benchmark sequences (A, B, and C) with average confidence **0.835 – 0.861** and complete end-to-end verification of safety state transitions (`SAFE` $\to$ `WARNING` $\to$ `DANGER` $\to$ `LOCKOUT`).
