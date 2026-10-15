@@ -75,9 +75,11 @@ Para evitar *chattering* y conmutaciones erráticas en los relés de seguridad:
 
 ---
 
-## 6. Salida de Datos: Capa Física vs Telemetría
+## 6. Salida de Datos: Abstracción Lógica vs Telemetría
 
-* **Lazo Crítico de Seguridad (Parada de Emergencia):**
-  * Salida a relé de seguridad / GPIO físico conectado al circuito de parada de la máquina. Latencia $< 5\text{ ms}$, sin depender de stacks de red.
+* **Lazo Crítico de Seguridad (Abstracción Lógica / Mock):**
+  * Emisión determinista en memoria de la señal `trip = True` en la estructura `SafetyOutput` (latencia interna $< 0.1\text{ ms}$).
+  * > [!WARNING]
+  * > **Aviso Crítico de Instalación:** Por tratarse de un prototipo experimental no certificado (sin homologación SIL/PL ni redundancia de canal Cat 3/4), este software **nunca** debe cablearse directamente a relés o circuitos de parada de emergencia de maquinaria peligrosa.
 * **Capa Telemática (Monitoreo y Dwell Time):**
-  * Protocolos: Modbus TCP / OPC UA para interacción con PLCs de línea; MQTT / JSON para eventos de permanencia prolongada (*dwell time*) y auditoría en SCADA/Cloud.
+  * Telemetría estructurada JSONL/JSON en tiempo real para auditoría, análisis forense y visualización. Integración teórica con protocolos industriales (Modbus TCP, OPC UA, MQTT) para telemetría de monitoreo asistido en plantas industriales.

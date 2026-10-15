@@ -4,7 +4,7 @@ context: |
   Tech stack: Python 3.10+, YOLOv8/11 Pose (ONNX), ONNX Runtime, OpenCV, NumPy, Shapely
   Architecture: Industrial Edge AI intrusion detection & dwell monitoring via DLT Homography and Spatial FSM
   Testing: PyTest (strict_tdd enabled)
-  Style: Strict PEP 484/526 typing, modular design, ISO 13855:2024 compliance
+  Style: Strict PEP 484/526 typing, modular design, inspired by ISO 13855:2024 timing models
 
 rules:
   proposal:

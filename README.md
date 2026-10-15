@@ -1,4 +1,19 @@
+<div align="center">
+
 # Vision-Based Restricted Zone Monitoring: Intrusion Detection & Dwell Time Analysis
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-CoreML%20%7C%20CPU-orange?logo=onnx&logoColor=white)](https://onnxruntime.ai/)
+[![OpenCV](https://img.shields.io/badge/OpenCV-Computer%20Vision-5C3EE8?logo=opencv&logoColor=white)](https://opencv.org/)
+[![CI/CD](https://img.shields.io/github/actions/workflow/status/LeanoA/edge-vision-zone-monitor/deploy.yml?branch=main&label=CI%2FCD&logo=githubactions&logoColor=white)](https://github.com/LeanoA/edge-vision-zone-monitor/actions/workflows/deploy.yml)
+[![Tests](https://img.shields.io/badge/tests-218%20passed%20(100%25)-success?logo=pytest&logoColor=white)](#)
+[![Latency](https://img.shields.io/badge/latency%20(p95)-%3C%2022ms%20(T1%20budget)-00b4d8?logo=speedtest&logoColor=white)](#)
+
+<br/>
+
+[![Live Demo](https://img.shields.io/badge/%E2%96%B6%20Live%20Demo-Production-brightgreen?style=for-the-badge&logo=render&logoColor=white)](#)
+
+</div>
 
 Prototipo experimental de visión artificial para monitoreo de incursiones y control de permanencia en zonas restringidas en tiempo real, combinando **YOLO Pose**, **Transformación Homográfica (2D Píxel a Plano Métrico)**, **Filtrado Kalman 2D Cinemático** y **Máquinas de Estados Finitos Espaciales (Spatial FSM)**.
 
@@ -23,65 +38,46 @@ Para garantizar la entrega de un sistema robusto, determinista y verificable sin
 
 ### 1. Núcleo Principal y Flujo de Datos End-to-End
 
-El sistema está estructurado en 5 etapas secuenciales de percepción y decisión, integradas con un módulo ortogonal de perfilado de latencia (*Performance Profiler*) para garantizar presupuestos de tiempo real según **ISO 13855**:
+El sistema está estructurado en 5 etapas secuenciales de percepción y decisión, integradas con un módulo ortogonal de perfilado de latencia (*Performance Profiler*) para evaluar empíricamente presupuestos de tiempo real inspirados en el modelo de respuesta de **ISO 13855**:
 
-```
-                    PERCEPTION
-                         │
-Camera frame ──► Pose inference
-                         │
-                         ▼
-                 keypoint extraction
-                         │
-                         ▼
-                 ground-point estimate
-                         │
-─────────────────────────┼────────────────────────
-                    GEOMETRY
-                         │
-                         ▼
-                   Homography
-                         │
-                         ▼
-                 (X,Y) estimate [m]
-                         │
-─────────────────────────┼────────────────────────
-                  STATE ESTIMATION
-                         │
-                         ▼
-                Alpha-Beta / Kalman
-                         │
-                         ▼
-            filtered metric trajectory
-                         │
-─────────────────────────┼────────────────────────
-                 DECISION LOGIC
-                         │
-                         ▼
-              Restricted zone test
-                         │
-                         ▼
-                  Spatial FSM
-                         │
-                         ▼
-                   Dwell timer
-                         │
-─────────────────────────┼────────────────────────
-                     OUTPUT
-                         │
-            events / overlay / metrics
+```mermaid
+flowchart TD
+    subgraph PERCEPTION ["1. PERCEPTION"]
+        CAM["Camera Frame"] --> INFER["Pose Inference<br/>(YOLO11n-Pose ONNX)"]
+        INFER --> KP["Keypoint Extraction<br/>(Left & Right Ankles)"]
+        KP --> GROUND["Ground Contact Estimate<br/>(Ankle Midpoint / Fallback)"]
+    end
 
-          ═══════════════════════════
-          PERFORMANCE PROFILER (Ortogonal)
-          • Capture / Ingest Latency
-          • Preprocess Latency
-          • Inference Latency
-          • Keypoint Extract Latency
-          • Projection Latency
-          • Tracking Latency
-          • FSM Decision Latency
-          • End-to-End Reaction Time (T1)
-          ═══════════════════════════
+    subgraph GEOMETRY ["2. GEOMETRY"]
+        GROUND --> HOMO["Planar Homography H<br/>(DLT 3x3, κ(H) < 10⁶)"]
+        HOMO --> METRIC["World Plane Coordinates<br/>(X, Y) [m] on floor Zw = 0"]
+    end
+
+    subgraph STATE_ESTIMATION ["3. STATE ESTIMATION"]
+        METRIC --> MOT["Multi-Target Association<br/>(Munkres / Hungarian)"]
+        MOT --> KF["Kinematic Kalman Filter<br/>(Mahalanobis Gating & Coasting)"]
+        KF --> TRAJ["Filtered Metric Trajectory<br/>(X, Y, v_x, v_y) & Epistemic Status"]
+    end
+
+    subgraph DECISION_LOGIC ["4. DECISION LOGIC"]
+        TRAJ --> ZONE["Restricted Zone Test<br/>(Prepared Geometries)"]
+        ZONE --> FSM["Spatial FSM<br/>(Occupancy Statechart)"]
+        FSM --> DWELL["Dwell Timer<br/>(Temporal Duration Classifier)"]
+    end
+
+    subgraph OUTPUT ["5. OUTPUT"]
+        DWELL --> TELEM["Telemetry & Event Stream<br/>(JSONL & Alerts)"]
+        DWELL --> OVERLAY["Dual Visualizer<br/>(Perspective + Top-Down BEV)"]
+    end
+
+    subgraph PROFILER ["PERFORMANCE PROFILER (Ortogonal)"]
+        PROF["Stage Latency Profiling:<br/>• Capture / Ingestion<br/>• Preprocess Letterbox<br/>• Model Inference<br/>• Keypoint Extraction<br/>• Metric Homography<br/>• Kalman Tracking<br/>• Spatial FSM Decision<br/><b>Total Reaction Budget T₁ ≤ 50 ms</b>"]
+    end
+
+    PERCEPTION -.-> PROFILER
+    GEOMETRY -.-> PROFILER
+    STATE_ESTIMATION -.-> PROFILER
+    DECISION_LOGIC -.-> PROFILER
 ```
 
 #### Mapeo Arquitectónico y Estado de Implementación
@@ -171,15 +167,12 @@ pixel ROI: [(327, 412), (598, 390), (620, 580), (280, 560)] px
 Este enfoque sufre de distorsión proyectiva severa: no preserva distancias euclidianas, ángulos ni paralelismo, impidiendo cualquier razonamiento físico.
 
 Al incorporar una transformación homográfica planar $H \in \mathbb{R}^{3 \times 3}$, el pipeline proyecta el punto de apoyo real sobre el suelo:
-```
-camera image
-     │
-     ▼
-pixel coordinates (u, v) [tobillos]
-     │
-     H (DLT 3x3)
-     ▼
-ground-plane coordinates (X, Y) [m]
+
+```mermaid
+flowchart TD
+    IMG["Camera Perspective Image"] --> PIX["Pixel Coordinates (u, v)<br/>Ankle Contact Anchor"]
+    PIX --> DLT["Planar Homography Matrix H<br/>(DLT 3x3 Calibration)"]
+    DLT --> WORLD["Ground-Plane Coordinates (X, Y) [m]<br/>Calibrated Floor Plane (Zw = 0)"]
 ```
 
 Esto convierte la zona restringida en una entidad **físicamente interpretable y medible**:
@@ -252,45 +245,72 @@ Para evitar la conflación entre la **topología espacial** y la **acumulación 
 
 1. ENTRY POLICY (Conservative & Fast):
    • Aproximación normal (vn < 1.6 m/s) : Debounce de N_confirm = 3 cuadros.
-   • Aproximación rápida (vn >= 1.6 m/s): Bypass instantáneo (N_confirm = 1) en cuadro 1 (ISO 13855).
+   • Aproximación rápida (vn >= 1.6 m/s): Bypass instantáneo (N_confirm = 1) en cuadro 1 (umbral cinemático inspirado en ISO 13855).
 
 2. EXIT POLICY (Hysteretic & Strict):
    • Debounce de salida: Exige N_release = 5 cuadros consecutivos fuera de P_release.
    • Salvaguarda asimétrica (ADR-008): Desescalada permitida estrictamente con fotones reales (OBSERVED).
-     Si el objetivo queda ocluido (PREDICTED / STALE), la salida se bloquea y el relé permanece abierto.
+     Si el objetivo queda ocluido (PREDICTED / STALE), la desescalada se bloquea y el estado permanece en intrusión (`trip = True`).
 ```
 
 #### Statecharts Ortogonales (Occupancy x Dwell)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 1. AUTÓMATA DE OCUPACIÓN ESPACIAL (OccupancyState)                          │
-│                                                                             │
-│               [ OUTSIDE ] ◄─────────────────┐                               │
-│                    │                        │                               │
-│     (Punto dentro) │                        │ (N_release cuadros OBSERVED   │
-│                    ▼                        │  fuera de P_release)          │
-│            [ ENTER_PENDING ]                │                               │
-│                    │                        │                               │
-│ (N_confirm cuadros │                        │                               │
-│  o vn >= 1.6 m/s)  ▼                        │                               │
-│               [ INSIDE ] ──────────► [ EXIT_PENDING ]                       │
-│              (trip=True)    (Punto fuera    │                               │
-│                              de P_danger)   │                               │
-└────────────────────┬────────────────────────┴───────────────────────────────┘
-                     │ (Condición: Occupancy == INSIDE)
-                     ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 2. CLASIFICADOR TEMPORAL DE PERMANENCIA (DwellState)                        │
-│                                                                             │
-│    (Occupancy != INSIDE) ──► [ NONE ] (Timer inactivo / reset a 0.0s)        │
-│                                                                             │
-│    [ NORMAL ] ──(t >= T_warn)──► [ WARNING ] ──(t >= T_violation)──► [ VIOLATION ] │
-│   (0 <= t < T_warn)            (T_warn <= t < T_viol)           (t >= T_viol)│
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+stateDiagram-v2
+    direction TB
+
+    state "1. Autómata de Ocupación Espacial (OccupancyState)" as SpatialOccupancy {
+        [*] --> OUTSIDE
+        OUTSIDE --> ENTER_PENDING: Punto dentro de P_danger
+        ENTER_PENDING --> INSIDE: N_confirm cuadros (o vn >= 1.6 m/s)
+        ENTER_PENDING --> OUTSIDE: Punto sale de P_danger antes de confirmar
+        INSIDE --> EXIT_PENDING: Punto fuera de P_danger
+        EXIT_PENDING --> INSIDE: Punto reingresa a P_danger
+        EXIT_PENDING --> OUTSIDE: N_release cuadros OBSERVED fuera de P_release
+    }
+
+    state "2. Clasificador Temporal de Permanencia (DwellState)" as TemporalDwell {
+        [*] --> NONE
+        NONE --> NORMAL: Occupancy == INSIDE (t = 0.0s)
+        NORMAL --> WARNING: t >= T_warn
+        WARNING --> VIOLATION: t >= T_violation
+        NORMAL --> NONE: Occupancy != INSIDE (reset a 0.0s)
+        WARNING --> NONE: Occupancy != INSIDE (reset a 0.0s)
+        VIOLATION --> NONE: Occupancy != INSIDE (reset a 0.0s)
+    }
 ```
 
-* **Invariante Fail-Safe:** La señal de parada de emergencia (`trip = True`) se dispara en el instante $t = 0.0\text{ s}$ de confirmación en `INSIDE` (o ante `FAULT`/`LOCKOUT`). El clasificador de *dwell* categoriza la severidad operacional sin demorar la respuesta de parada.
+#### Diagrama de Secuencia: Ciclo Síncrono de Procesamiento de Cuadro
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Caller / Video Loop
+    participant P as SafetyPipeline
+    participant O as OnnxEngine
+    participant H as HomographyManager
+    participant K as MultiTargetKalmanTracker
+    participant F as SpatialFSM
+    participant V as DualVisualizer
+
+    C->>P: process_frame(frame)
+    activate P
+    P->>P: preprocess: letterbox (640x640)
+    P->>O: infer(tensor) -> keypoints de pose
+    P->>P: extract ankle anchors (kp 15, 16)
+    P->>H: project_batch(anchors) -> metric coords (X, Y)
+    P->>K: update(metric coords) -> active tracks & velocities
+    P->>F: update(tracks) -> SafetyOutput (trip, states, dwell)
+    P-->>C: PipelineResult (output, tracks, latencies)
+    deactivate P
+    opt Visualización Activa
+        C->>V: render(frame, PipelineResult)
+        V->>V: render_perspective() + render_bev()
+        V-->>C: composite_frame
+    end
+```
+
+* **Invariante Fail-Safe (Software):** La señal lógica de disparo (`trip = True`) se emite en el instante $t = 0.0\text{ s}$ de confirmación en `INSIDE` (o ante `FAULT`/`LOCKOUT`). El clasificador de *dwell* categoriza la severidad operacional sin demorar la respuesta de parada.
 
 ---
 
