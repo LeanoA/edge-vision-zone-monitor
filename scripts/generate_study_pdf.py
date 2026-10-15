@@ -20,7 +20,7 @@ import matplotlib.patches as patches
 from matplotlib.backends.backend_pdf import PdfPages
 
 DOCS_DIR = Path("/Users/xander/Projects/edge-safety-guard/docs")
-OUTPUT_PDF = DOCS_DIR / "guia-estudio-arquitectura.pdf"
+OUTPUT_PDF = DOCS_DIR / "guia-estudio-arquitectura.local.pdf"
 
 PAGE_WIDTH = 8.27
 PAGE_HEIGHT = 11.69

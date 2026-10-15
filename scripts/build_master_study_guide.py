@@ -28,8 +28,8 @@ import typst
 
 REPO_ROOT = Path("/Users/xander/Projects/edge-safety-guard")
 DOCS_DIR = REPO_ROOT / "docs"
-TYP_OUTPUT = DOCS_DIR / "guia-estudio-arquitectura.typ"
-PDF_OUTPUT = DOCS_DIR / "guia-estudio-arquitectura.pdf"
+TYP_OUTPUT = DOCS_DIR / "guia-estudio-arquitectura.local.typ"
+PDF_OUTPUT = DOCS_DIR / "guia-estudio-arquitectura.local.pdf"
 
 def run_pandoc(filepath: Path, shift: int = 0) -> str:
     cmd = ["/opt/homebrew/bin/pandoc", str(filepath), "-t", "typst"]
