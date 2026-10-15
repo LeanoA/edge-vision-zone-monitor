@@ -48,10 +48,11 @@ def test_engine_provider_fallback_when_coreml_fails(synthetic_onnx_path: Path, c
             raise RuntimeError("CoreML initialization failure simulation")
         return original_cls(model_path, *args, **kwargs)
 
-    with patch("onnxruntime.InferenceSession", side_effect=mock_session_constructor):
-        engine = OnnxEngine(synthetic_onnx_path, providers=["CoreMLExecutionProvider", "CPUExecutionProvider"])
-        assert "CPUExecutionProvider" in engine.get_providers()
-        assert "CoreML initialization failure simulation" in caplog.text
+    with patch("onnxruntime.get_available_providers", return_value=["CoreMLExecutionProvider", "CPUExecutionProvider"]):
+        with patch("onnxruntime.InferenceSession", side_effect=mock_session_constructor):
+            engine = OnnxEngine(synthetic_onnx_path, providers=["CoreMLExecutionProvider", "CPUExecutionProvider"])
+            assert "CPUExecutionProvider" in engine.get_providers()
+            assert "CoreML initialization failure simulation" in caplog.text
 
 
 def test_engine_session_options_applied(synthetic_onnx_path: Path):
