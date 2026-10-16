@@ -515,3 +515,11 @@ During rigorous stress testing with dense pedestrian datasets (`pets2009_s2_l1` 
   1. **Single-Identity Tracklet & Normalization:** Continuous extraction of an authentic worker in RGBA canvas ($160 \times 320$) with soft alpha-feathering and Gaussian ground contact shadows.
   2. **Calibrated Pinhole Perspective Scaling ($h = \frac{480}{1.0 + 0.165 \cdot Y}$):** Maintains anthropometric perspective scale across the entire workcell depth ($Y \in [0.5, 5.5]\text{ m}$).
   3. **Verification Results:** Achieved a **100% detection rate** across all synthetic benchmark sequences (A, B, and C) with average confidence **0.835 – 0.861** and complete end-to-end verification of safety state transitions (`SAFE` $\to$ `WARNING` $\to$ `DANGER` $\to$ `LOCKOUT`).
+
+---
+
+## 👤 Author & Maintainer
+
+**Alexander Leaño**  
+GitHub: [@LeanoA](https://github.com/LeanoA) · LinkedIn: [alexandernelsonleano](https://www.linkedin.com/in/alexandernelsonleano)
+
