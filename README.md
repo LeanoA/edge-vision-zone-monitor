@@ -15,7 +15,36 @@
 
 </div>
 
-Experimental computer vision prototype for real-time restricted zone incursion monitoring and dwell time analysis, combining **YOLO Pose**, **Planar Homography Transformation (2D Pixel to Metric Floor Plane)**, **2D Kinematic Kalman Filtering**, and **Orthogonal Spatial Statecharts (Spatial FSM)**.
+**Architectural Reference Implementation & Industrial Engineering Prototype** for real-time restricted zone incursion monitoring and dwell time analysis, combining **YOLO Pose**, **Planar Homography Transformation (2D Pixel to Metric Floor Plane)**, **2D Kinematic Kalman Filtering**, and **Orthogonal Spatial Statecharts (Spatial FSM)**.
+
+---
+
+## ⚡ 3-Minute Quickstart (Zero to Working Demo)
+
+Get the complete safeguarding pipeline running locally with dual-perspective visualization and telemetry in under 3 minutes:
+
+```bash
+# 1. Clone repository and install dependencies
+git clone https://github.com/LeanoA/edge-vision-zone-monitor.git
+cd edge-vision-zone-monitor
+pip install -r requirements.txt
+
+# 2. Compile static ONNX graph (downloads YOLO11-Pose checkpoint and exports models/yolo11n-pose.onnx)
+python models/export_onnx.py
+
+# 3. Generate deterministic synthetic benchmark videos with exact metric ground truth
+python scripts/generate_samples.py
+
+# 4. Run interactive demo (Dual OpenCV window: Perspective Overlay + Metric Bird's-Eye View)
+python scripts/run_demo.py --source data/samples/sequence_a_clean_incursion.mp4
+
+# Optional: Headless execution (exports annotated MP4 video and structured JSONL telemetry)
+python scripts/run_demo.py \
+  --source data/samples/sequence_b_occlusion_coasting.mp4 \
+  --no-display \
+  --output-video output/demo_annotated.mp4 \
+  --output-events output/telemetry_events.jsonl
+```
 
 ---
 
@@ -94,7 +123,7 @@ flowchart TD
 * **CoreML Execution Provider Profiling:** Granular profiling of Apple Silicon Neural Engine (ANE) vs GPU execution.
 * **Alternative Detector Baseline:** Latency and accuracy trade-off benchmarks comparing alternative lightweight pose detectors.
 
-### 3. Explicitly Out of MVP Scope
+### 3. Explicitly Out of Current Scope (Future Roadmap)
 * **Pascal INT8 TensorRT Engine:** Specialized post-training INT8 quantization for Pascal GPUs without native Tensor Cores.
 * **DeepStream Zero-Copy Pipelines:** GStreamer/DeepStream C++ zero-copy shared memory pipelines.
 * **Dedicated Embedded Hardware:** Hardware-specific adaptations for NVIDIA Jetson Orin/Nano and Raspberry Pi compute modules.
@@ -401,46 +430,31 @@ sequenceDiagram
 
 ---
 
-## 💻 CLI Demo Orchestrator (`scripts/run_demo.py`)
+## 🧪 Evaluation Datasets: Active Validation & Future Research Roadmap
 
-To run the interactive end-to-end demonstration with real-time dual perspective visualization:
+To balance zero-bandwidth, reproducible continuous integration with empirical factory stress testing, the evaluation dataset strategy is categorized into three distinct operational tiers:
 
-```bash
-# 1. Generate deterministic synthetic calibration sequences
-python scripts/generate_samples.py --output-dir data/samples
+### Tier 1: Primary Deterministic Ground-Truth Suite (Active Core Benchmark)
+* **What it is:** Photorealistic synthetic workcell sequences (`sequence_a_clean_incursion`, `sequence_b_occlusion_coasting`, `sequence_c_dwell_loitering`) generated deterministically via `scripts/generate_samples.py` using RGBA worker sprites and perspective pinhole scaling.
+* **Why it is used for primary verification:** Public CCTV datasets lack sub-millimeter ground truth for physical floor positions ($Z_w = 0$) and ground-plane velocities ($\vec{v} = [\dot{X}, \dot{Y}]$). The synthetic suite provides **analytical ground truth ($\text{error} = 0.00\text{ mm}$)**, enabling exact mathematical auditing of ISO 13855 reaction latencies ($T_1 \le 50\text{ ms}$), Kalman coasting during lower-limb occlusions, and Schmitt trigger dwell time state transitions.
 
-# 2. Run interactive demo (Dual OpenCV window with SPACE pause / 'q' exit)
-python scripts/run_demo.py --source data/samples/sequence_a_clean_incursion.mp4
-
-# 3. Run in headless mode exporting annotated video and JSONL telemetry
-python scripts/run_demo.py \
-  --source data/samples/sequence_b_occlusion_coasting.mp4 \
-  --no-display \
-  --output-video output/demo_annotated.mp4 \
-  --output-events output/telemetry_events.jsonl
-```
-
----
-
-## 🧪 Real-World Dataset Ingestion & Validation (PETS 2009, OpenCV, OpenVINO)
-
-The repository includes a decoupled harness to download, calibrate, and evaluate empirical video surveillance datasets without modifying core pipeline code:
+### Tier 2: Real-World Empirical Video Benchmarks (Decoupled Ingestion Harness)
+* **What it is:** Real-world surveillance and factory CCTV streams ingested via `scripts/download_datasets.py` and evaluated via `scripts/run_dataset_test.py`:
+  * **`mendeley_industrial` ($1920 \times 1080$):** Real metalworking manufacturing plant with workers near stamping presses; validates Full HD pose inference and pre-alert warning boundaries.
+  * **`opencv_vtest` ($768 \times 576$):** Continuous pedestrian crossing footage; validates sustained zone intrusions and emergency lockout latching (`LOCKOUT`).
+  * **`openvino_people` ($1920 \times 1080$):** High-resolution pedestrian corridor; validates longitudinal metric homography scaling and perimeter safety transit.
+  * **`pets2009_s2_l1` ($768 \times 576$):** Multi-target campus concourse; stress-tests the global Hungarian matching algorithm and Mahalanobis gating ($\chi^2 \le 9.21$) against dense crowd crossings with zero ID swaps.
 
 ```bash
-# 1. Inspect catalog and download sequences (with automatic mirror failover)
-python scripts/download_datasets.py --list
+# 1. Download empirical datasets with automatic multi-mirror failover
+python scripts/download_datasets.py --dataset mendeley_industrial
 python scripts/download_datasets.py --dataset pets2009_s2_l1
-python scripts/download_datasets.py --dataset opencv_vtest
-python scripts/download_datasets.py --dataset openvino_people
 
-# 2. Run interactive evaluation with OpenCV GUI window
-python scripts/run_dataset_test.py --dataset pets2009_s2_l1 --display --realtime
-
-# 3. Run batch headless evaluation (exports composite video, events.jsonl, and summary.json)
-python scripts/run_dataset_test.py --dataset pets2009_s2_l1 --no-display
+# 2. Run automated batch evaluation (exports composite video, JSONL events, and summary metrics)
+python scripts/run_dataset_test.py --dataset mendeley_industrial --no-display
 ```
 
-### Empirical Validation Metrics Summary (ISO 13855 / $T_1 \le 50\text{ ms}$)
+#### Empirical Validation Metrics Summary (ISO 13855 / $T_1 \le 50\text{ ms}$)
 
 | Dataset / Sequence | Scenario / Environment | Resolution | Frames | Throughput | Mean Latency ($T_1$) | $p_{95}$ Latency | Verification Outcome |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
@@ -451,6 +465,22 @@ python scripts/run_dataset_test.py --dataset pets2009_s2_l1 --no-display
 | **`opencv_vtest`** | Pedestrian Surveillance CCTV | $768 \times 576$ | 795 | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Intrusion & Lockout Invariants Verified |
 | **`openvino_people`** | High-Resolution Corridor (Full HD) | $1920 \times 1080$ | 302 | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Safe Perimeter Transit Verified |
 | **`pets2009_s2_l1`** | Multi-Target Outdoor Concourse | $768 \times 576$ | 795 | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Dense Crowd Tracking & Zero ID Swaps |
+
+### Tier 3: Future Research Roadmap Datasets (Robotic Cells & Advanced Modalities)
+These large-scale datasets were evaluated during architectural discovery ([see docs/data/datasets.md](docs/data/datasets.md)) and constitute prime test cases for future research and expanded case studies:
+
+* **`InHARD` & `InHARD-DT` (Zenodo, 24 GB / 16.8 GB):**
+  * *Context:* Human-Robot Collaboration (HRC) assembly cell featuring industrial robotic manipulators, multi-angle RGB cameras, and wearable motion capture skeletons (BVH at 120 Hz).
+  * *Compelling Research Case Study:* Extends the static spatial zone model into **ISO/TS 15066 Speed and Separation Monitoring (SSM)**, where hazard boundaries contract and expand dynamically as a function of the robot tool-center-point (TCP) velocity vector relative to the operator's predicted trajectory.
+* **`HA4M` (Science Data Bank, 4.1 TB):**
+  * *Context:* Multi-modal assembly cell with 6 synchronized streams (RGB, Depth, Infrared, and Azure Kinect 3D Point Clouds).
+  * *Compelling Research Case Study:* Investigates multi-modal sensor fusion (2D RGB + 3D Depth) to eliminate the planar floor assumption ($Z_w \approx 0$), enabling robust safeguarding when workers climb maintenance platforms, elevated ladders, or uneven staging equipment.
+* **`Sheffield UR5 Factory` (Figshare, 13.5 GB):**
+  * *Context:* Real-world manufacturing shopfloor with human interaction around Universal Robots UR5 cobots.
+  * *Compelling Research Case Study:* Validation of fine-grained worker micro-action recognition and intent forecasting to prevent false safety shutdowns in collaborative workspace environments.
+* **Domain-Specific PPE Datasets (`CPPE-5` / `Pictor`):**
+  * *Context:* Factory personnel wearing heavy Personal Protective Equipment (high-visibility suits, reflective stripes, steel-toe boots).
+  * *Compelling Research Case Study:* Transfer learning and domain adaptation to audit ankle keypoint extraction stability when foot anatomy is obscured by heavy protective gear.
 
 ---
 

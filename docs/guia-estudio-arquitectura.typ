@@ -577,17 +577,18 @@ degradación en el par de frenado.
 
 La norma establece que bajo ninguna circunstancia la distancia $S$ puede
 ser inferior a un límite absoluto de #strong[$100 upright(" mm")$]. Por
-consiguiente, la latencia del software del MVP en el dispositivo Edge
-($t_1$) limita de manera directa la distancia física mínima a la que se
-debe desplegar la #emph[virtual fence] o barrera digital.
+consiguiente, la latencia del software del prototipo de ingeniería en el
+dispositivo Edge ($t_1$) limita de manera directa la distancia física
+mínima a la que se debe desplegar la #emph[virtual fence] o barrera
+digital.
 
 #divider()
 
 == Arquitectura de Sistema y Pipeline de Procesamiento en Tiempo Real <arquitectura-de-sistema-y-pipeline-de-procesamiento-en-tiempo-real>
-=== Cadena de Procesamiento Principal (Scope Freeze del MVP) <cadena-de-procesamiento-principal-scope-freeze-del-mvp>
+=== Cadena de Procesamiento Principal (Scope Freeze de la Implementación de Referencia) <cadena-de-procesamiento-principal-scope-freeze-de-la-implementación-de-referencia>
 Para preservar la viabilidad técnica y evitar la dispersión de
-esfuerzos, el alcance del MVP se estructura de forma lineal y
-determinista:
+esfuerzos, el alcance de la implementación de referencia se estructura
+de forma lineal y determinista:
 
 ```
 Recorded Video / Ingestion
@@ -612,7 +613,8 @@ Latency Profiling (Medición T1 de fin a fin según ISO 13855)
 ```
 
 ==== Clasificación de Requerimientos y Priorización de Alcance <clasificación-de-requerimientos-y-priorización-de-alcance>
-+ #strong[MVP Obligatorio (Principal):]
++ #strong[Alcance Principal Obligatorio (Core Reference
+  Implementation):]
   - Ingestión de video grabado/stream con preprocesamiento letterbox
     $\(640 times 640\)$.
   - Inferencia con YOLO11n-pose en ONNX Runtime desacoplado.
@@ -1219,7 +1221,7 @@ es servir como material de estudio y referencia para comprender el
     y visión artificial, agregar características complejas antes de
     validar la cadena causal primaria introduce vectores de fallo y
     acoplamientos innecesarios.
-  - #strong[La Cadena Causal del MVP:]
+  - #strong[La Cadena Causal del Núcleo Arquitectónico:]
     $ upright("Frame") arrow.r upright("Pose") arrow.r upright("Tobillos") arrow.r upright("Homografía") arrow.r upright("Ubicación Métrica") arrow.r upright("Kalman 2D") arrow.r upright("FSM") arrow.r upright("Dwell") arrow.r upright("Visualización Dual") arrow.r upright("Profiling") $
     Cada eslabón responde directamente a la hipótesis central de
     seguridad física bajo la norma ISO 13855:2024. Si este núcleo no es
@@ -1237,8 +1239,8 @@ es servir como material de estudio y referencia para comprender el
       alternativo (validación PoC en NVIDIA GTX 1050 Pascal CC 6.1 /
       Jetson), optimizaciones propietarias (TensorRT), orquestación
       (Docker), multi-cámara o re-entrenamiento. Evitan inflar la
-      complejidad del MVP antes de contar con un prototipo funcional
-      cerrado.
+      complejidad de la implementación de referencia antes de contar con
+      un núcleo arquitectónico cerrado y verificado.
 
 === P13: ¿Por qué este prototipo se presenta como "inspirado en el razonamiento de ISO 13855" y NUNCA como un "sistema que cumple ISO 13855"? <p13-por-qué-este-prototipo-se-presenta-como-inspirado-en-el-razonamiento-de-iso-13855-y-nunca-como-un-sistema-que-cumple-iso-13855>
 - #strong[Fundamento de Ingeniería y Seguridad Funcional (Diferencia

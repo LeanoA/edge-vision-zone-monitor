@@ -1,4 +1,4 @@
-# Diseño Arquitectónico y Especificación Técnica de un MVP de Visión Artificial en el Edge para la Detección de Intrusión y Permanencia en Zonas Industriales Restringidas
+# Diseño Arquitectónico y Especificación Técnica: Implementación de Referencia de Visión Artificial en el Edge para la Detección de Intrusión y Permanencia en Zonas Industriales Restringidas
 
 ---
 
@@ -33,15 +33,15 @@ En esta ecuación:
   Donde $v_{\text{hazard}}$ es la velocidad inicial del peligro y $a_{\text{hazard}}$ la desaceleración mecánica.
 * **$Z_{\text{extra}}$:** Margen suplementario para absorber incertidumbres de medición, errores en la calibración intrínseca/extrínseca de las cámaras, variaciones de reflectancia y degradación en el par de frenado.
 
-La norma establece que bajo ninguna circunstancia la distancia $S$ puede ser inferior a un límite absoluto de **$100\text{ mm}$**. Por consiguiente, la latencia del software del MVP en el dispositivo Edge ($t_1$) limita de manera directa la distancia física mínima a la que se debe desplegar la *virtual fence* o barrera digital.
+La norma establece que bajo ninguna circunstancia la distancia $S$ puede ser inferior a un límite absoluto de **$100\text{ mm}$**. Por consiguiente, la latencia del software del prototipo de ingeniería en el dispositivo Edge ($t_1$) limita de manera directa la distancia física mínima a la que se debe desplegar la *virtual fence* o barrera digital.
 
 ---
 
 ## 2. Arquitectura de Sistema y Pipeline de Procesamiento en Tiempo Real
 
-### 2.1 Cadena de Procesamiento Principal (Scope Freeze del MVP)
+### 2.1 Cadena de Procesamiento Principal (Scope Freeze de la Implementación de Referencia)
 
-Para preservar la viabilidad técnica y evitar la dispersión de esfuerzos, el alcance del MVP se estructura de forma lineal y determinista:
+Para preservar la viabilidad técnica y evitar la dispersión de esfuerzos, el alcance de la implementación de referencia se estructura de forma lineal y determinista:
 
 ```
 Recorded Video / Ingestion
@@ -67,7 +67,7 @@ Latency Profiling (Medición T1 de fin a fin según ISO 13855)
 
 #### Clasificación de Requerimientos y Priorización de Alcance
 
-1. **MVP Obligatorio (Principal):**
+1. **Alcance Principal Obligatorio (Core Reference Implementation):**
    - Ingestión de video grabado/stream con preprocesamiento letterbox $(640 \times 640)$.
    - Inferencia con YOLO11n-pose en ONNX Runtime desacoplado.
    - Extracción de punto de apoyo en suelo a partir del punto medio de tobillos (`left_ankle`, `right_ankle`) con filtrado por confianza.

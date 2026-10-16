@@ -108,13 +108,13 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
 ### P12: ¿Por qué aplicamos un congelamiento de alcance (Scope Freeze) separando funcionalidades en Principal, Secundario y Futuro?
 * **Fundamento de Ingeniería:**
   * **Ley de Rendimientos Decrecientes:** En sistemas de seguridad y visión artificial, agregar características complejas antes de validar la cadena causal primaria introduce vectores de fallo y acoplamientos innecesarios.
-  * **La Cadena Causal del MVP:**
+  * **La Cadena Causal del Núcleo Arquitectónico:**
     $$\text{Frame} \to \text{Pose} \to \text{Tobillos} \to \text{Homografía} \to \text{Ubicación Métrica} \to \text{Kalman 2D} \to \text{FSM} \to \text{Dwell} \to \text{Visualización Dual} \to \text{Profiling}$$
     Cada eslabón responde directamente a la hipótesis central de seguridad física bajo la norma ISO 13855:2024. Si este núcleo no es determinista y no cumple el presupuesto de tiempo $T_1$, cualquier adición periférica carece de valor.
   * **Criterio de Segregación:**
     1. *Principal (Obligatorio):* Lo necesario para ingerir video, calcular distancias métricas, transicionar estados de seguridad y auditar latencias.
     2. *Trabajo Futuro (Benchmarks y Análisis):* Benchmarks comparativos (PyTorch vs ONNX, CoreML granular, detectores alternativos) que aportan métricas de análisis pero no cambian la lógica de seguridad.
-    3. *Trabajo Futuro (Despliegue y Silicio):* Hardware específico alternativo (validación PoC en NVIDIA GTX 1050 Pascal CC 6.1 / Jetson), optimizaciones propietarias (TensorRT), orquestación (Docker), multi-cámara o re-entrenamiento. Evitan inflar la complejidad del MVP antes de contar con un prototipo funcional cerrado.
+    3. *Trabajo Futuro (Despliegue y Silicio):* Hardware específico alternativo (validación PoC en NVIDIA GTX 1050 Pascal CC 6.1 / Jetson), optimizaciones propietarias (TensorRT), orquestación (Docker), multi-cámara o re-entrenamiento. Evitan inflar la complejidad de la implementación de referencia antes de contar con un núcleo arquitectónico cerrado y verificado.
 
 ### P13: ¿Por qué este prototipo se presenta como "inspirado en el razonamiento de ISO 13855" y NUNCA como un "sistema que cumple ISO 13855"?
 * **Fundamento de Ingeniería y Seguridad Funcional (Diferencia Conceptual Crítica):**

@@ -25,7 +25,7 @@
 | :--- | :--- | :--- | :--- |
 | **Approach 1: Monolithic Script**<br>Procedural script in `scripts/run_demo.py` with top-level while loop. | Quick to write. | Hard to unit-test; global state pollution; tight coupling between I/O and display. | Low |
 | **Approach 2: Modular `DemoRunner` Class (Recommended)**<br>Encapsulates stream lifecycle (`initialize`, `process_frame`, `run`, `close`, `get_summary_metrics`) with CLI entrypoint. | Highly testable in CI; clean separation of stream ingestion, display, and telemetry serialization; easily scriptable as a Python API. | Slightly more initial code structure. | Medium |
-| **Approach 3: Asynchronous Multi-Threaded Runner**<br>Producer-consumer architecture with separate frame decoding, inference, and display threads. | Maximizes multi-core throughput. | Over-engineered for single-stream MVP; introduces thread race conditions and jitter in latency profiling metrics ($T_1$). | High |
+| **Approach 3: Asynchronous Multi-Threaded Runner**<br>Producer-consumer architecture with separate frame decoding, inference, and display threads. | Maximizes multi-core throughput. | Over-engineered for single-stream prototype; introduces thread race conditions and jitter in latency profiling metrics ($T_1$). | High |
 
 ---
 
