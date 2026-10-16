@@ -25,9 +25,9 @@ Reposition the project terminology from "MVP/PoC" to "Architectural Reference Im
 - Restructured `README.md` with:
   1. Positioning: "Architectural Reference Implementation & Industrial Engineering Prototype".
   2. ⚡ 3-Minute Quickstart placed directly below the header/pitch with full clone-to-demo instructions (including `python models/export_onnx.py`).
-  3. 3-Tier Dataset Taxonomy: Tier 1 (Deterministic synthetic ground-truth workcells for millimetric ISO 13855 audit), Tier 2 (Empirical CCTV factory benchmarks via automated downloader), Tier 3 (Future research roadmap: InHARD HRC cobot SSM, HA4M 3D point cloud multi-modality, CPPE-5 heavy PPE boots).
+  3. 3-Domain Dataset Taxonomy: Domain 1 (Scientific Benchmark Matrix: 5 controlled experiments mapping isolated datasets to metrics), Domain 2 (Functional Edge-Case Invariant Suite for state transitions and coasting), Domain 3 (Future research roadmap: InHARD HRC cobot SSM, HA4M 3D point cloud multi-modality, CPPE-5 heavy PPE boots).
 - Test Suite: 218/218 passing in 16.15s (`./.venv/bin/pytest tests/`).
-- Commit: `886917f` (`docs/reference-impl-quickstart-and-mvp-purge`)
+- Commit: `7f682bb` (`docs/reference-impl-quickstart-and-mvp-purge`)
 
 ## Next Step
 Work unit complete; awaiting user instructions for merge or push.

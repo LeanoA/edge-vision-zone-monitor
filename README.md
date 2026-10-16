@@ -430,43 +430,52 @@ sequenceDiagram
 
 ---
 
-## 🧪 Evaluation Datasets: Active Validation & Future Research Roadmap
+## 🧪 Evaluation Datasets & Experimental Benchmark Matrix
 
-To balance zero-bandwidth, reproducible continuous integration with empirical factory stress testing, the evaluation dataset strategy is categorized into three distinct operational tiers:
+To ensure absolute scientific honesty and avoid conflating general functional sanity tests with formal measurement benchmarks, the evaluation datasets are structured into three distinct operational domains:
 
-### Tier 1: Primary Deterministic Ground-Truth Suite (Active Core Benchmark)
-* **What it is:** Photorealistic synthetic workcell sequences (`sequence_a_clean_incursion`, `sequence_b_occlusion_coasting`, `sequence_c_dwell_loitering`) generated deterministically via `scripts/generate_samples.py` using RGBA worker sprites and perspective pinhole scaling.
-* **Why it is used for primary verification:** Public CCTV datasets lack sub-millimeter ground truth for physical floor positions ($Z_w = 0$) and ground-plane velocities ($\vec{v} = [\dot{X}, \dot{Y}]$). The synthetic suite provides **analytical ground truth ($\text{error} = 0.00\text{ mm}$)**, enabling exact mathematical auditing of ISO 13855 reaction latencies ($T_1 \le 50\text{ ms}$), Kalman coasting during lower-limb occlusions, and Schmitt trigger dwell time state transitions.
+### 1. Scientific Benchmark Matrix (Controlled Hypothesis Testing)
+The quantitative claims in the Architecture Decision Records (ADRs), master study guides, and performance charts are derived from five controlled experiments, each utilizing a specific dataset chosen to isolate physical and computational variables:
 
-### Tier 2: Real-World Empirical Video Benchmarks (Decoupled Ingestion Harness)
-* **What it is:** Real-world surveillance and factory CCTV streams ingested via `scripts/download_datasets.py` and evaluated via `scripts/run_dataset_test.py`:
-  * **`mendeley_industrial` ($1920 \times 1080$):** Real metalworking manufacturing plant with workers near stamping presses; validates Full HD pose inference and pre-alert warning boundaries.
-  * **`opencv_vtest` ($768 \times 576$):** Continuous pedestrian crossing footage; validates sustained zone intrusions and emergency lockout latching (`LOCKOUT`).
-  * **`openvino_people` ($1920 \times 1080$):** High-resolution pedestrian corridor; validates longitudinal metric homography scaling and perimeter safety transit.
-  * **`pets2009_s2_l1` ($768 \times 576$):** Multi-target campus concourse; stress-tests the global Hungarian matching algorithm and Mahalanobis gating ($\chi^2 \le 9.21$) against dense crowd crossings with zero ID swaps.
+| Controlled Experiment | Target Dataset | Experimental Rationale | Core Metric Measured |
+| :--- | :--- | :--- | :--- |
+| **Exp 1: Runtime Engine Showdown** | **`openvino_people`** ($1080\text{p}$) | Continuous real pedestrian flow in Full HD to measure raw inference latency without synthetic bias. | **$4.36\times$ speedup** on CoreML ($17.83\text{ ms}$ mean, $20.80\text{ ms}$ $p_{95}$) vs PyTorch CPU ($77.80\text{ ms}$). |
+| **Exp 2: Quantization & Metric Drift** | **`sequence_a_clean_incursion`** | Sub-millimeter ground truth floor positions required to measure physical coordinate drift ($Z_w = 0$). | Metric Floor Error: $\text{RMSE} = 33.32\text{ cm}$ (FP32) vs $\text{RMSE} = 89.06\text{ cm}$ (INT8 dynamic on CoreML). |
+| **Exp 3: Resolution & Far-Field Sensitivity** | **`mendeley_walkway_violation`** | Industrial corridor of $15\text{ m}$ depth with workers walking towards and away from camera. | Far-field human detection ($Y > 8\text{ m}$): 83 detections ($640\text{p}$) vs 639 detections ($960\text{p}$, $7.7\times$ increase). |
+| **Exp 4: Granular Latency Profiling** | **$1080\text{p}$ Industrial Stream** | Stage-by-stage timer breakdown across all 7 pipeline components against the ISO 13855 $T_1 \le 50\text{ ms}$ budget. | Ingestion: $1.46\text{ ms}$, Preprocess: $0.87\text{ ms}$, Infe: $16.97\text{ ms}$ ($92\%$), DLT: $0.08\text{ ms}$, Kalman: $0.29\text{ ms}$, FSM: $0.02\text{ ms}$. |
+| **Exp 5: Multi-Target MOT & Gating** | **`pets2009_s2_l1`** & **`sequence_a`** | Dense multi-target crossings and occlusions to validate global combinatorial assignment. | **$\text{MOTA} = 0.961$**, $\text{IDF1} = 0.981$, 0 ID switches, Mahalanobis gate $\chi^2_2(0.99) \le 9.210$. |
 
 ```bash
-# 1. Download empirical datasets with automatic multi-mirror failover
-python scripts/download_datasets.py --dataset mendeley_industrial
-python scripts/download_datasets.py --dataset pets2009_s2_l1
-
-# 2. Run automated batch evaluation (exports composite video, JSONL events, and summary metrics)
-python scripts/run_dataset_test.py --dataset mendeley_industrial --no-display
+# Reproduce the complete scientific benchmark suite (all 5 experiments)
+python scripts/audit_and_reproduce_benchmarks.py --all
 ```
 
-#### Empirical Validation Metrics Summary (ISO 13855 / $T_1 \le 50\text{ ms}$)
+---
 
-| Dataset / Sequence | Scenario / Environment | Resolution | Frames | Throughput | Mean Latency ($T_1$) | $p_{95}$ Latency | Verification Outcome |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **`synthetic_sequence_a`** | Safety Workcell (Clean Incursion) | $1280 \times 720$ | 180 | $51.4\text{ FPS}$ | $16.24\text{ ms}$ | $24.68\text{ ms}$ | ✅ Exact Ground Truth ($\text{err} = 0.0\text{ mm}$) |
-| **`synthetic_sequence_b`** | Safety Workcell (Ankle Occlusion) | $1280 \times 720$ | 180 | $36.5\text{ FPS}$ | $24.07\text{ ms}$ | $28.94\text{ ms}$ | ✅ Graceful Degradation & Kalman Coasting |
-| **`synthetic_sequence_c`** | Safety Workcell (Dwell Accumulation) | $1280 \times 720$ | 300 | $37.4\text{ FPS}$ | $23.44\text{ ms}$ | $28.02\text{ ms}$ | ✅ Decoupled Dwell Transition Verified |
-| **`mendeley_industrial`** | Industrial Machine Workcell | $1920 \times 1080$ | 173 | $37.5\text{ FPS}$ | $15.35\text{ ms}$ | $18.26\text{ ms}$ | ✅ 1080p Pose Inference & Pre-alert Verified |
-| **`opencv_vtest`** | Pedestrian Surveillance CCTV | $768 \times 576$ | 795 | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Intrusion & Lockout Invariants Verified |
-| **`openvino_people`** | High-Resolution Corridor (Full HD) | $1920 \times 1080$ | 302 | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Safe Perimeter Transit Verified |
-| **`pets2009_s2_l1`** | Multi-Target Outdoor Concourse | $768 \times 576$ | 795 | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Dense Crowd Tracking & Zero ID Swaps |
+### 2. Functional Edge-Case Invariant Validation Suite
+In addition to the scientific benchmark matrix, the following video sequences serve as specialized test fixtures to validate discrete state machine transitions, Kalman degradation, and fault recovery:
 
-### Tier 3: Future Research Roadmap Datasets (Robotic Cells & Advanced Modalities)
+| Test Sequence | Scenario & Edge-Case Under Test | Verification Outcome & State Invariant |
+| :--- | :--- | :--- |
+| **`sequence_a_clean_incursion`** | Constant speed incursion ($v_x = 1.0\text{ m/s}$) with exact ground truth. | ✅ Evaluates $N_{\text{confirm}} = 3$ debounce and verifies physical trip latency ($T_{\text{event}} = 66.7\text{ ms}$). |
+| **`sequence_b_occlusion_coasting`** | Lower-limb occlusion ($0.5\text{ m}$ obstacle blocking ankles for 15 frames). | ✅ Graceful degradation (`ankles_dual` $\to$ `tracker_predicted` coasting) without covariance divergence. |
+| **`sequence_c_dwell_loitering`** | Worker remains static inside hazardous workcell for $7.0\text{ s}$. | ✅ Decoupled temporal FSM transitions (`NORMAL` $\to$ `WARNING` $\to$ `VIOLATION` at $t \ge 5.0\text{ s}$). |
+| **`opencv_vtest`** | Continuous pedestrian crossing through restricted safety corridor. | ✅ Sustained intrusion triggers emergency latching (`LOCKOUT`), requiring manual supervisory reset. |
+| **`mendeley_industrial`** | Production metalworking machinery cell with operator intervention. | ✅ Validates DLT homography projection and dual-zone pre-alert on full-scale manufacturing equipment. |
+
+```bash
+# 1. Download empirical test datasets with automatic multi-mirror failover
+python scripts/download_datasets.py --dataset mendeley_industrial
+python scripts/download_datasets.py --dataset mendeley_walkway_violation
+python scripts/download_datasets.py --dataset pets2009_s2_l1
+
+# 2. Run automated headless evaluation on any individual dataset
+python scripts/run_dataset_test.py --dataset mendeley_walkway_violation --no-display
+```
+
+---
+
+### 3. Future Research Roadmap Datasets (Robotic Cells & Advanced Modalities)
 These large-scale datasets were evaluated during architectural discovery ([see docs/data/datasets.md](docs/data/datasets.md)) and constitute prime test cases for future research and expanded case studies:
 
 * **`InHARD` & `InHARD-DT` (Zenodo, 24 GB / 16.8 GB):**
