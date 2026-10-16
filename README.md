@@ -8,6 +8,7 @@
 [![CI/CD](https://img.shields.io/github/actions/workflow/status/LeanoA/edge-vision-zone-monitor/deploy.yml?branch=main&label=CI%2FCD&logo=githubactions&logoColor=white)](https://github.com/LeanoA/edge-vision-zone-monitor/actions/workflows/deploy.yml)
 [![Tests](https://img.shields.io/badge/tests-218%20passed%20(100%25)-success?logo=pytest&logoColor=white)](#)
 [![Latency](https://img.shields.io/badge/latency%20(p95)-%3C%2022ms%20(T1%20budget)-00b4d8?logo=speedtest&logoColor=white)](#)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 <br/>
 
