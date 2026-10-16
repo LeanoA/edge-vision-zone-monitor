@@ -78,13 +78,13 @@ Latency Profiling (Medición T1 de fin a fin según ISO 13855)
    - Compositor dual en tiempo real (vista de cámara con overlays + vista cenital métrica Top-Down BEV) y registro de eventos JSON.
    - Medición de latencia de reacción $T_1$ por etapas y métricas de percentiles (p50, p95, p99).
 
-2. **Secundario (Sólo si sobra tiempo):**
+2. **Trabajo Futuro (Líneas de Análisis y Benchmarks):**
    - Comparación y benchmark de rendimiento PyTorch vs ONNX Runtime.
    - Evaluación granular de rendimiento con CoreML Execution Provider en Apple Silicon.
    - Baseline comparativo contra detectores alternativos más compactos.
 
-3. **Fuera de Alcance del MVP (Definitivamente después):**
-   - Despliegue optimizado en GPU NVIDIA GTX 1050 (requiere cuantización PTQ INT8).
+3. **Líneas de Trabajo Futuro:**
+   - Despliegue y validación empírica en GPU NVIDIA GTX 1050 (arquitectura Pascal CC 6.1 disponible; concebida originalmente como prueba de concepto para evaluar portabilidad en hardware heterogéneo fuera de Apple Silicon, quedando planificada como trabajo futuro bajo cuantización PTQ INT8).
    - Integración nativa con TensorRT y pipelines zero-copy DeepStream.
    - Adaptaciones para hardware embebido heterogéneo (NVIDIA Jetson Nano/Orin, Raspberry Pi).
    - Empaquetado en contenedor Docker para distribución industrial.
@@ -110,8 +110,9 @@ Latency Profiling (Medición T1 de fin a fin según ISO 13855)
 ### 3.2 Consideraciones de Hardware y Trampas de Implementación
 
 * **Arquitectura NVIDIA Pascal (ej. GTX 1050, Compute Capability 6.1):**
-  * *Restricción de Silicio:* Aunque Pascal tiene soporte *full-rate* para operaciones enteras **INT8**, su cómputo en **FP16** está penalizado de fábrica (*low-rate*, 1:64 respecto a FP32).
-  * *Directriz Obligatoria:* Cualquier despliegue en Pascal requiere **cuantización post-entrenamiento (PTQ) a INT8** con TensorRT y dataset de calibración. En cambio, arquitecturas Ampere u Orin cuentan con Tensor Cores que aceleran FP16 e INT8 indistintamente.
+  * *Contexto de Prueba de Concepto (Trabajo Futuro):* La GPU NVIDIA GTX 1050 (Pascal CC 6.1) fue el hardware físico disponible seleccionado para evaluar la portabilidad del pipeline fuera del entorno de desarrollo primario (Apple Silicon). Aunque formó parte de la intención inicial de diseño como PoC, su validación empírica en silicio queda formalmente delimitada como trabajo futuro.
+  * *Restricción de Silicio:* Aunque Pascal tiene soporte *full-rate* para operaciones enteras **INT8**, su cómputo en **FP16** está penalizado de fábrica (*low-rate*, 1:64 respecto a FP32) debido a la ausencia de Tensor Cores dedicados.
+  * *Directriz Obligatoria para Trabajo Futuro:* Cualquier despliegue en Pascal requerirá **cuantización post-entrenamiento (PTQ) a INT8** con TensorRT y dataset de calibración para garantizar ejecución full-rate. En cambio, arquitecturas Ampere u Orin cuentan con Tensor Cores que aceleran FP16 e INT8 indistintamente.
 * **Aceleradores Edge TPU (Google Coral):**
   * *Trampa de Ejecución Mixta:* Si la red incluye operadores no soportados nativamente por el compilador de la Edge TPU (atención compleja, DFL, NMS custom), se generan transferencias cíclicas de tensores por el bus del sistema entre la TPU y la CPU en cada fotograma, disparando la latencia de 20-30 ms a 1800-2100 ms y destruyendo el determinismo.
 

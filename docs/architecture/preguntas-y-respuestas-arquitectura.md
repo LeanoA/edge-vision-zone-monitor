@@ -12,14 +12,14 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
   * **Incompatibilidad Física:** TensorRT es software propietario de NVIDIA acoplado a la arquitectura CUDA; no existe ni puede ejecutarse en Apple Silicon.
   * **Desacoplamiento Arquitectónico:** ONNX (*Open Neural Network Exchange*) actúa como capa de abstracción intermedia. Al encapsular la inferencia en la clase `OnnxEngine`, la lógica de negocio (homografía, FSM, tracking) no sabe ni le importa qué hardware corre debajo.
   * **Rendimiento Nativo:** En macOS, ONNX Runtime delega mediante `CoreMLExecutionProvider` en el Apple Neural Engine (ANE) y GPU de Apple, logrando latencias de inferencia de $\approx 18\text{–}20\text{ ms}$ ($>54\text{ FPS}$).
-  * **Portabilidad:** Cuando el código se traslade a un nodo industrial con GPU NVIDIA (ej. GTX 1050), solo se cambia el Execution Provider a `CUDAExecutionProvider` o TensorRT sin alterar una sola línea de código del sistema.
+  * **Portabilidad:** Cuando el código se traslade a un nodo industrial con GPU NVIDIA (ej. GTX 1050 / Jetson), solo se cambia el Execution Provider a `CUDAExecutionProvider` o TensorRT sin alterar una sola línea de código del sistema.
 
 ### P2: ¿Por qué la NVIDIA GTX 1050 (arquitectura Pascal) exige cuantización obligatoria a INT8 y prohíbe FP16?
-* **Contexto:** Se proyecta desplegar el MVP en una notebook con GTX 1050.
+* **Contexto:** Se planeó como prueba de concepto (PoC) evaluar el sistema en una notebook disponible con GPU NVIDIA GTX 1050 (arquitectura Pascal CC 6.1) para contrastar la portabilidad en silicio heterogéneo fuera de Apple Silicon. Dicha evaluación queda proyectada como trabajo futuro.
 * **Fundamento Técnico:**
   * **Restricción de Silicio (Compute Capability 6.1):** Las GPUs basadas en Pascal no poseen Tensor Cores dedicados. A nivel de silicio, las operaciones en coma flotante de media precisión (**FP16**) están penalizadas de fábrica a una tasa de $1:64$ en comparación con precisión simple (**FP32**). Correr en FP16 en Pascal degrada el rendimiento drásticamente.
   * **Soporte Full-Rate INT8:** Pascal sí soporta instrucciones escalares de enteros de 8 bits (**INT8**) a tasa completa (*full-rate*).
-  * **Conclusión de Ingeniería:** Para lograr alta velocidad en una GTX 1050 con TensorRT, es mandatorio realizar **cuantización post-entrenamiento (PTQ) a INT8** utilizando un dataset de calibración para generar los factores de escala dinámicos.
+  * **Conclusión de Ingeniería:** Para lograr alta velocidad en una GTX 1050 con TensorRT como trabajo futuro, es mandatorio realizar **cuantización post-entrenamiento (PTQ) a INT8** utilizando un dataset de calibración para generar los factores de escala dinámicos.
 
 ---
 
@@ -113,8 +113,8 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
     Cada eslabón responde directamente a la hipótesis central de seguridad física bajo la norma ISO 13855:2024. Si este núcleo no es determinista y no cumple el presupuesto de tiempo $T_1$, cualquier adición periférica carece de valor.
   * **Criterio de Segregación:**
     1. *Principal (Obligatorio):* Lo necesario para ingerir video, calcular distancias métricas, transicionar estados de seguridad y auditar latencias.
-    2. *Secundario (Solo si sobra tiempo):* Benchmarks comparativos (PyTorch vs ONNX, CoreML granular, detectores alternativos) que aportan métricas de análisis pero no cambian la lógica de seguridad.
-    3. *Futuro (Fuera de alcance):* Hardware específico (GTX 1050 / Jetson), optimizaciones propietarias (TensorRT), orquestación (Docker), multi-cámara o re-entrenamiento. Evitan inflar la complejidad del MVP antes de contar con un prototipo funcional cerrado.
+    2. *Trabajo Futuro (Benchmarks y Análisis):* Benchmarks comparativos (PyTorch vs ONNX, CoreML granular, detectores alternativos) que aportan métricas de análisis pero no cambian la lógica de seguridad.
+    3. *Trabajo Futuro (Despliegue y Silicio):* Hardware específico alternativo (validación PoC en NVIDIA GTX 1050 Pascal CC 6.1 / Jetson), optimizaciones propietarias (TensorRT), orquestación (Docker), multi-cámara o re-entrenamiento. Evitan inflar la complejidad del MVP antes de contar con un prototipo funcional cerrado.
 
 ### P13: ¿Por qué este prototipo se presenta como "inspirado en el razonamiento de ISO 13855" y NUNCA como un "sistema que cumple ISO 13855"?
 * **Fundamento de Ingeniería y Seguridad Funcional (Diferencia Conceptual Crítica):**
@@ -124,7 +124,7 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
     > *Experimental vision-based intrusion monitoring system inspired by industrial safety-zone concepts and ISO 13855 safety-distance reasoning. Not a safety-rated protective device.*
 ### P14: ¿Qué significa exactamente que el sistema reporte que una persona está a 0.93 m del peligro?
 * **Fundamento de Metrología y Visión Computacional:**
-  * **La Falsa Precisión:** En una entrevista técnica o auditoría, responder "la homografía calculó que está a exactamente 93 centímetros" denota inmadurez en visión por computadora.
+  * **La Falsa Precisión:** En una auditoría técnica o revisión de arquitectura, responder "la homografía calculó que está a exactamente 93 centímetros" denota inmadurez en visión por computadora.
   * **El Modelo de Incertidumbre Compuesta:** La coordenada en metros es una función estimada $\hat{P}_{\text{world}} = H(\hat{p}_{\text{feet}})$, donde se acumulan cinco fuentes de error independientes:
     1. *Pose estimation error:* Jitter e incertidumbre en la predicción de keypoints de tobillos.
     2. *Pixel quantization:* Resolución finita y discretización de la cuadrícula del sensor de cámara.

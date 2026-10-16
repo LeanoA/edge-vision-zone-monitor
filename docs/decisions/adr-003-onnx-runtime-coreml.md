@@ -4,7 +4,7 @@
 - **Fecha:** 2026-08-29
 
 ## Contexto
-El modelo base de pose (`yolo11n-pose`) debe ejecutarse con latencia determinista en dispositivos de borde locales (Apple Silicon M1/M2/M3) y permitir una migración transparente hacia nodos industriales con GPU dedicada (NVIDIA GTX 1050 / Jetson).
+El modelo base de pose (`yolo11n-pose`) debe ejecutarse con latencia determinista en dispositivos de borde locales (Apple Silicon M1/M2/M3) y garantizar una arquitectura portable para futuras pruebas de concepto en hardware discreto heterogéneo (ej. NVIDIA GTX 1050 / Jetson).
 
 ## Opciones Consideradas
 
@@ -18,10 +18,10 @@ El modelo base de pose (`yolo11n-pose`) debe ejecutarse con latencia determinist
 
 3. **TensorRT Nativo Directo:**
    - *Pros:* Máximo rendimiento en silicio NVIDIA.
-   - *Contras:* Propietario e incompatible con macOS (Apple Silicon). En GPUs Pascal (GTX 1050 - sm_61) requiere cuantización obligatoria a INT8 debido a la penalización de hardware de FP16.
+   - *Contras:* Propietario e incompatible con macOS (Apple Silicon). En GPUs Pascal (como la GTX 1050 disponible para PoC) requeriría cuantización obligatoria a INT8 debido a la penalización de hardware de FP16.
 
 ## Decisión Tomada
-Se adopta **ONNX Runtime** como motor de ejecución desacoplado con la clase `OnnxEngine`. Para desarrollo y demo local se opera con `CoreMLExecutionProvider` / `CPUExecutionProvider` (4 hilos). Para la posterior etapa de despliegue en NVIDIA GTX 1050, se mantendrá la misma interfaz invocando `CUDAExecutionProvider` o TensorRT cuantizado en INT8.
+Se adopta **ONNX Runtime** como motor de ejecución desacoplado con la clase `OnnxEngine`. Para desarrollo y demo local se opera con `CoreMLExecutionProvider` / `CPUExecutionProvider` (4 hilos). Para la etapa de trabajo futuro de evaluación PoC en NVIDIA GTX 1050, se mantendrá la misma interfaz invocando `CUDAExecutionProvider` o TensorRT cuantizado en INT8.
 
 ## Consecuencias
 - **Rendimiento Comprobado:** Inferencia verificada a $p_{95} = 20.26\text{ ms}$ (54.55 FPS) en Apple Silicon.

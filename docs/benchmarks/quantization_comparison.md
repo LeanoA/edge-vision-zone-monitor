@@ -1,4 +1,4 @@
-## 📊 Comparative Quantization & Metric Precision Benchmark (YOLO11-Pose)
+## Comparative Quantization & Metric Precision Benchmark (YOLO11-Pose)
 
 | Precision Mode | Model Size | Reduction | Mean Latency | Throughput | Pixel RMSE | Metric Ground RMSE | Max Drift | Near ($<2.5\text{m}$) | Far ($>4.0\text{m}$) | Tolerance ($\le 15\text{cm}$) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |

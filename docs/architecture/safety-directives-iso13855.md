@@ -69,9 +69,10 @@ Para evitar *chattering* y conmutaciones erráticas en los relés de seguridad:
 * **Fase 1 (Desarrollo local - Apple Silicon M1/M2/M3):**
   * Inferencia: ONNX Runtime con `CoreMLExecutionProvider` (346/354 ops delegados a ANE/GPU).
   * Fallback: `CPUExecutionProvider` con ARM NEON (4 hilos).
-* **Fase 2 (Despliegue Industrial - NVIDIA GTX 1050 Notebook / Jetson):**
-  * Arquitectura Pascal (Compute Capability 6.1): El silicio de Pascal tiene penalización de rendimiento en cómputo FP16 (tasa 1:64 en FP16 vs FP32).
-  * **Estrategia Obligatoria en Pascal:** Cuantización **INT8** post-entrenamiento (PTQ) con TensorRT y dataset de calibración.
+* **Trabajo Futuro (Validación PoC en Silicio Heterogéneo - NVIDIA GTX 1050 / Pascal CC 6.1):**
+  * *Propósito:* Evaluar el comportamiento en hardware disponible diferente al entorno de desarrollo (Apple Silicon) como prueba de concepto de portabilidad.
+  * *Arquitectura Pascal (Compute Capability 6.1):* El silicio de Pascal tiene penalización de rendimiento en cómputo FP16 (tasa 1:64 en FP16 vs FP32) por carecer de Tensor Cores dedicados.
+  * *Estrategia Obligatoria en Pascal:* Cuantización **INT8** post-entrenamiento (PTQ) con TensorRT y dataset de calibración para alcanzar tasa de ejecución completa.
 
 ---
 

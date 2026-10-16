@@ -1,4 +1,4 @@
-## 📊 Comparative Runtime Engine Benchmark (YOLO11-Pose @ 640x640)
+## Comparative Runtime Engine Benchmark (YOLO11-Pose @ 640x640)
 
 | Runtime Engine | Backend / Device | Mean (ms) | p50 (ms) | p95 (ms) | p99 (ms) | Std (ms) | Pure Inference FPS | Speedup vs CPU | Internal Budget (p95 $\le$ 30ms) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
