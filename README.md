@@ -12,7 +12,9 @@
 
 <br/>
 
-[![Live Demo](https://img.shields.io/badge/%E2%96%B6%20Live%20Demo-Production-brightgreen?style=for-the-badge&logo=render&logoColor=white)](#)
+<img src="docs/figures/demo_incursion.gif" alt="Industrial Safety Guard Real-Time Incursion Tracking Demo" width="100%" />
+
+*Real-Time Dual Compositor: Perspective Pose Inference with Ankle Anchors (left) vs. Calibrated Metric Bird's-Eye View (BEV) Ground Plane with Kinematic Kalman Tracking & Safety Trip Statechart (right).*
 
 </div>
 
@@ -108,6 +110,10 @@ flowchart TD
     DECISION_LOGIC -.-> PROFILER
 ```
 
+<div align="center">
+  <img src="docs/figures/pipeline_flow.png" alt="Decoupled 4-Layer Architecture Pipeline Flow" width="100%" />
+</div>
+
 #### Architectural Mapping & Implementation Status
 
 | Architectural Layer | Component / Flow | Code Module | Implementation Status (Edge AI) |
@@ -156,12 +162,21 @@ This project serves as an experimental platform to rigorously resolve engineerin
     2. *Temporal:* Debounce requires $N_{\text{confirm}} \ge 3$ consecutive frames for normal pace.
     3. *Kinematic Bypass:* If the normal approach speed towards the hazard satisfies $v_n \ge 1.6\text{ m/s}$, debounce is bypassed immediately on frame 1 ($N_{\text{confirm}} = 1$) for instant emergency trip.
   * *Validation:* [`tests/test_fsm.py`](tests/test_fsm.py) tests tangential motion, boundary oscillations, and high-speed incursions.
+
+<div align="center">
+  <img src="docs/figures/schmitt_trigger.png" alt="Spatial Schmitt Trigger with Dual Hysteresis Band" width="85%" />
+</div>
+
 * **Q5: Do ankle keypoints justify the compute overhead over a bounding box base? ([See ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md))**
   * *Applied Framework:* The practical baseline is the bounding box bottom-center:
     $$p_{\text{ground-bbox}} = \left( \frac{x_{\min} + x_{\max}}{2}, y_{\max} \right)$$
     In contrast, pose estimation isolates anatomical floor contact:
     $$p_{\text{ground-pose}} = \operatorname{mean}\left(\text{valid-ankles}(k_{15}, k_{16})\right)$$
   * *Experimental Trade-Off:* Pose provides anatomical fidelity invariant to torso lean or camera tilt, but incurs higher computational cost. Bounding box bottom-center is $\approx 30\text{–}40\%$ faster but severely deforms when an operator bends forward over a barrier.
+
+<div align="center">
+  <img src="docs/figures/bbox_vs_ankles.png" alt="Ankle Contact vs BBox Base Centroid" width="85%" />
+</div>
 * **Q6: How does the system behave when feet or ankles are occluded by machinery or pallets? ([See ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md))**
   * *Failure Mode:* If machinery blocks an operator's feet, the pose model reports low confidence (`conf < 0.5`) on both ankles. Dropping detections creates a blind hazard; using low-confidence points injects catastrophic noise into the homography.
   * *Graceful Degradation Hierarchy:*
@@ -446,6 +461,10 @@ The quantitative claims in the Architecture Decision Records (ADRs), master stud
 | **Exp 4: Granular Latency Profiling** | **$1080\text{p}$ Industrial Stream** | Stage-by-stage timer breakdown across all 7 pipeline components against the ISO 13855 $T_1 \le 50\text{ ms}$ budget. | Ingestion: $1.46\text{ ms}$, Preprocess: $0.87\text{ ms}$, Infe: $16.97\text{ ms}$ ($92\%$), DLT: $0.08\text{ ms}$, Kalman: $0.29\text{ ms}$, FSM: $0.02\text{ ms}$. |
 | **Exp 5: Multi-Target MOT & Gating** | **`pets2009_s2_l1`** & **`sequence_a`** | Dense multi-target crossings and occlusions to validate global combinatorial assignment. | **$\text{MOTA} = 0.961$**, $\text{IDF1} = 0.981$, 0 ID switches, Mahalanobis gate $\chi^2_2(0.99) \le 9.210$. |
 
+<div align="center">
+  <img src="docs/figures/latency_breakdown.png" alt="Granular Pipeline Latency Breakdown" width="85%" />
+</div>
+
 ```bash
 # Reproduce the complete scientific benchmark suite (all 5 experiments)
 python scripts/audit_and_reproduce_benchmarks.py --all
@@ -463,6 +482,11 @@ In addition to the scientific benchmark matrix, the following video sequences se
 | **`sequence_c_dwell_loitering`** | Worker remains static inside hazardous workcell for $7.0\text{ s}$. | ✅ Decoupled temporal FSM transitions (`NORMAL` $\to$ `WARNING` $\to$ `VIOLATION` at $t \ge 5.0\text{ s}$). |
 | **`opencv_vtest`** | Continuous pedestrian crossing through restricted safety corridor. | ✅ Sustained intrusion triggers emergency latching (`LOCKOUT`), requiring manual supervisory reset. |
 | **`mendeley_industrial`** | Production metalworking machinery cell with operator intervention. | ✅ Validates DLT homography projection and dual-zone pre-alert on full-scale manufacturing equipment. |
+
+<div align="center">
+  <img src="docs/figures/demo_factory_walkway.gif" alt="Industrial Manufacturing Shopfloor CCTV Homography & Walkway Monitoring" width="100%" />
+  <p><em>Real-World Shopfloor Validation: CCTV Monocular Stream in Heavy Metalworking Bay with Planar Homography and Metric Walkway Safety Boundaries (<code>mendeley_walkway_violation</code>).</em></p>
+</div>
 
 ```bash
 # 1. Download empirical test datasets with automatic multi-mirror failover
@@ -504,6 +528,10 @@ During rigorous stress testing with dense pedestrian datasets (`pets2009_s2_l1` 
   1. **Mahalanobis Ellipsoidal Gating ($\chi^2_2(0.99) \le 9.210$):** Innovation covariance projection $S = P + R$ dynamically elongates the search gate along the velocity vector $\vec{v}$.
   2. **Global Combinatorial Optimization (Munkres / Hungarian):** Global bipartite matching via `scipy.optimize.linear_sum_assignment` resolves trajectory crossings in $\mathcal{O}(N^3)$ within $0.017\text{ ms}$ for 10 targets.
 
+<div align="center">
+  <img src="docs/figures/kalman_mahalanobis.png" alt="Mahalanobis Innovation Gating Ellipsoid" width="70%" />
+</div>
+
 ### 2. Duplicate Proposals & Ghost Tracks — ✅ RESOLVED ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md))
 * **Symptom:** Redundant pose proposals from YOLO (both ankles or overlapping bounding box proposals) instantiated duplicate parallel tracks for a single worker.
 * **Implemented Solution:**
@@ -515,6 +543,10 @@ During rigorous stress testing with dense pedestrian datasets (`pets2009_s2_l1` 
   1. **Single-Identity Tracklet & Normalization:** Continuous extraction of an authentic worker in RGBA canvas ($160 \times 320$) with soft alpha-feathering and Gaussian ground contact shadows.
   2. **Calibrated Pinhole Perspective Scaling ($h = \frac{480}{1.0 + 0.165 \cdot Y}$):** Maintains anthropometric perspective scale across the entire workcell depth ($Y \in [0.5, 5.5]\text{ m}$).
   3. **Verification Results:** Achieved a **100% detection rate** across all synthetic benchmark sequences (A, B, and C) with average confidence **0.835 – 0.861** and complete end-to-end verification of safety state transitions (`SAFE` $\to$ `WARNING` $\to$ `DANGER` $\to$ `LOCKOUT`).
+
+<div align="center">
+  <img src="docs/figures/pinhole_scaling.png" alt="Synthetic Generation with Pinhole Scaling" width="85%" />
+</div>
 
 ---
 
