@@ -507,13 +507,13 @@ In addition to the scientific benchmark matrix, the repository provides 8 config
 
 <div align="center">
   <img src="docs/figures/demo_factory_walkway.gif" alt="Industrial Manufacturing Shopfloor CCTV Homography & Walkway Monitoring" width="100%" />
-  <p><em>Case 1 — Far-Corridor Walkway Violation (<code>mendeley_walkway_violation</code>): Foveated Far-Field ROI (<code>[1320, 200, 1700, 580]</code>) tracks distant workers under the MAMUL DEPO sign ($Y_w \in [15, 22]\text{ m}$) using <code>BBOX_BOTTOM</code> anchors, triggering <code>SAFETY TRIP: INSIDE</code> when stepping left of the green walkway border ($X_w < 10.0\text{ m}$).</em></p>
 </div>
+<p align="center"><em>Case 1 — Far-Corridor Walkway Violation (<code>mendeley_walkway_violation</code>): Foveated Far-Field ROI (<code>[1320, 200, 1700, 580]</code>) tracks distant workers under the MAMUL DEPO sign ($Y_w \in [15, 22]\text{ m}$) using <code>BBOX_BOTTOM</code> anchors, triggering <code>SAFETY TRIP: INSIDE</code> when stepping left of the green walkway border ($X_w < 10.0\text{ m}$).</em></p>
 
 <div align="center">
   <img src="docs/figures/demo_unauthorized_intervention.gif" alt="Industrial Manufacturing Shopfloor Scale-Adaptive Pose & Foveated ROI" width="100%" />
-  <p><em>Case 2 — Scale-Adaptive Multi-Zone Tracking (<code>mendeley_industrial</code>): Simultaneous tracking of a foreground operator using anatomical ankle keypoints (<code>ANKLES_DUAL</code>, $Y_w \approx 3.1\text{ m}$) and a distant corridor operator using foveated ROI bounding-box fallback (<code>BBOX_BOTTOM</code>, $Y_w \approx 12.6\text{ m}$) within $T_1 \approx 30.4\text{ ms}$.</em></p>
 </div>
+<p align="center"><em>Case 2 — Scale-Adaptive Multi-Zone Tracking (<code>mendeley_industrial</code>): Simultaneous tracking of a foreground operator using anatomical ankle keypoints (<code>ANKLES_DUAL</code>, $Y_w \approx 3.1\text{ m}$) and a distant corridor operator using foveated ROI bounding-box fallback (<code>BBOX_BOTTOM</code>, $Y_w \approx 12.6\text{ m}$) within $T_1 \approx 30.4\text{ ms}$.</em></p>
 
 #### Why Specific Runtime Parameters Are Loaded
 When evaluating industrial CCTV streams via `scripts/run_dataset_test.py` or `scripts/run_demo.py`, three parameters control perception sensitivity and geometric stability:
