@@ -44,20 +44,23 @@ The system executes as a deterministic, synchronous pipeline on Apple Silicon (v
 flowchart TD
     subgraph PERCEPTION ["1. PERCEPTION (Deep Learning)"]
         CAM["Camera Frame (1080p / 720p)"] --> PRE["Letterbox Preprocessing (640x640)"]
+        CAM -.-> ROI["Optional Foveated Far-Field ROI Crop & Deduplication"]
         PRE --> INFER["YOLO11n-Pose ONNX Engine<br/><i>(CoreML ANE / CPU Execution)</i>"]
+        ROI -.-> KP
         INFER --> KP["Anatomical Keypoint Extraction<br/><i>(Left Ankle 15, Right Ankle 16)</i>"]
         KP --> ANCHOR["Floor Anchor Resolver<br/><i>(Midpoint with BBox Fallback)</i>"]
     end
 
     subgraph GEOMETRY ["2. GEOMETRY (Projective Mathematics)"]
-        ANCHOR --> HOMO["Planar Homography H<br/><i>(DLT 3x3, Condition κ(H) < 10⁶)</i>"]
+        ANCHOR --> HOMO["Planar Homography H<br/><i>(DLT 3x3, Condition κ(H) < 10¹²)</i>"]
         HOMO --> METRIC["Metric Coordinates (X, Y) [m]<br/><i>(Physical Floor Plane Zw = 0)</i>"]
     end
 
     subgraph STATE_ESTIMATION ["3. STATE ESTIMATION (Bayesian Kinematics)"]
-        METRIC --> MOT["Combinatorial Assignment<br/><i>(Munkres / Hungarian Algorithm)</i>"]
-        MOT --> GATING["Ellipsoidal Gating<br/><i>(Mahalanobis χ²₂ ≤ 9.210)</i>"]
-        GATING --> KF["Kinematic Kalman Filter<br/><i>(Constant Velocity Model)</i>"]
+        METRIC --> KF_PRED["Kalman Predict<br/><i>(Constant Velocity Model)</i>"]
+        KF_PRED --> GATING["Ellipsoidal Gating<br/><i>(Mahalanobis χ²₂ ≤ 9.210)</i>"]
+        GATING --> MOT["Combinatorial Assignment<br/><i>(Munkres / Hungarian Algorithm)</i>"]
+        MOT --> KF["Joseph-Form Update & Spatial Birth NMS<br/><i>(d_birth ≥ 0.6m & Coasting)</i>"]
         KF --> TRAJ["Track Trajectory & Epistemic State<br/><i>(OBSERVED / PREDICTED / STALE)</i>"]
     end
 
@@ -135,9 +138,9 @@ flowchart LR
 ### Numerical Conditioning Safety Gate
 Calibration matrices estimated via Direct Linear Transformation (DLT) can degenerate under grazing camera angles or near-collinear points. Small pixel noise then produces massive metric errors. We enforce a strict condition number threshold:
 
-$$\kappa(H) = \frac{\sigma_{\max}(H)}{\sigma_{\min}(H)} < 10^6$$
+$$\kappa(H) = \frac{\sigma_{\max}(H)}{\sigma_{\min}(H)} < 10^{12}$$
 
-If $\kappa(H) \ge 10^6$, the calibration is rejected preventively at initialization.
+If $\kappa(H) \ge 10^{12}$, the calibration is rejected preventively at initialization.
 
 ---
 
@@ -229,10 +232,12 @@ The complete pipeline was benchmarked across standard academic and real-world in
 
 | Benchmark Dataset | Scenario | Resolution | Frames | Pipeline Throughput | Latency Mean ($T_1$) | $p_{95}$ Latency | Outcome |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **`synthetic_sequence_a`** | Clean Incursion | $1280 \times 720$ | 180 | $51.4\text{ FPS}$ | $16.24\text{ ms}$ | $24.68\text{ ms}$ | ✅ Exact Ground Truth ($\text{err} = 0.0\text{ mm}$) |
-| **`synthetic_sequence_b`** | Ankle Occlusion | $1280 \times 720$ | 180 | $36.5\text{ FPS}$ | $24.07\text{ ms}$ | $28.94\text{ ms}$ | ✅ Graceful Degradation & Kalman Coasting |
-| **`synthetic_sequence_c`** | Dwell Accumulation | $1280 \times 720$ | 300 | $37.4\text{ FPS}$ | $23.44\text{ ms}$ | $28.02\text{ ms}$ | ✅ Decoupled Dwell Transition Verified |
-| **`mendeley_industrial`** | Machine Intervention | $1920 \times 1080$ | 173 | $37.5\text{ FPS}$ | $15.35\text{ ms}$ | $18.26\text{ ms}$ | ✅ High-Res Pose & Pre-alert Verified |
+| **`sequence_a_clean_incursion`** | Clean Incursion | $1920 \times 1080$ | 180 | $45.8\text{ FPS}$ | $16.24\text{ ms}$ | $24.68\text{ ms}$ | ✅ Exact Ground Truth ($\text{err} = 0.0\text{ mm}$) |
+| **`sequence_b_occlusion_coasting`** | Ankle Occlusion | $1920 \times 1080$ | 180 | $36.1\text{ FPS}$ | $16.20\text{ ms}$ | $21.71\text{ ms}$ | ✅ Graceful Degradation & Kalman Coasting |
+| **`sequence_c_dwell_loitering`** | Dwell Accumulation | $1920 \times 1080$ | 300 | $42.4\text{ FPS}$ | $13.69\text{ ms}$ | $15.92\text{ ms}$ | ✅ Decoupled Dwell Transition Verified |
+| **`mendeley_industrial`** | Machine Intervention | $1920 \times 1080$ | 173 | $32.9\text{ FPS}$ | $30.38\text{ ms}$ | $33.81\text{ ms}$ | ✅ Foveated Far-Field ROI (ADR-013) & Pre-alert Verified |
+| **`mendeley_walkway_violation`** | Walkway Violation | $1920 \times 1080$ | 348 | $32.7\text{ FPS}$ | $30.58\text{ ms}$ | $33.53\text{ ms}$ | ✅ 100% Far-Corridor Recall (ADR-013) & Trip Verified |
+| **`openvino_people`** | Corridor Flow | $1920 \times 1080$ | 200 | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ 1080p Unletterbox & CoreML Throughput Verified |
 | **`opencv_vtest`** | Pedestrian Surveillance | $768 \times 576$ | 795 | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ Intrusion & Lockout Invariants Verified |
 | **`pets2009_s2_l1`** | Multi-Target Crowd | $768 \times 576$ | 795 | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Munkres Association & Zero ID Swaps |
 
@@ -251,6 +256,6 @@ On Apple Silicon (M-Series ANE via CoreML Execution Provider), total perception-
 ---
 
 ### Open Source Repository & Architecture Decision Records (ADRs)
-The complete Python codebase, 218 unit/integration tests, dataset ingestion utilities, and 12 Architecture Decision Records are available on GitHub:
+The complete Python codebase, 221 unit/integration tests, dataset ingestion utilities, and 13 Architecture Decision Records (ADRs) are available on GitHub:
 
 👉 **[github.com/LeanoA/edge-vision-zone-monitor](https://github.com/LeanoA/edge-vision-zone-monitor)**

@@ -42,25 +42,34 @@ Una arquitectura ingenua tiene dos extremos peligrosos:
 
 Se adopta una **política de degradación escalonada (Graceful Degradation Hierarchy)** combinada con el concepto de **Propagación de Confianza (Confidence Propagation)**:
 
-### 1. Jerarquía de Degradación Escalonada
-1. **Nivel 1 (Fidelidad Plena - Dual Ankles):** Si ambos tobillos tienen $conf \ge 0.5$, se proyecta su punto medio. Fuente: `SourceType.ANKLES_DUAL`.
-2. **Nivel 2 (Fidelidad Monocular - Single Ankle):** Si un solo tobillo supera el umbral, se utiliza dicho tobillo como anclaje físico. Fuente: `SourceType.ANKLE_SINGLE`.
-3. **Nivel 3 (Filtro Cinemático - Coasting):** Si ambos tobillos caen por debajo del umbral, el pipeline no proyecta un punto nuevo a homografía; en su lugar, el **MultiTargetKalmanTracker** retiene el track en modo `COASTING` extrapolando su velocidad $[\dot{X}, \dot{Y}]$ durante un máximo de $N_{\text{missed}} = 5$ fotogramas. Fuente: `SourceType.TRACKER_PREDICTED`.
-4. **Nivel 4 (Pérdida Crítica / Fallback):** Si la oclusión persiste más de $N_{\text{missed}}$ fotogramas o se trata de una pista no confirmada, se habilita el fallback a `BBOX_BOTTOM_CENTER` con penalización de confianza, o se marca el track como `DELETED`.
+### 1. Jerarquía de Degradación Escalonada (`AnchorSource`)
+1. **Nivel 1 (Fidelidad Plena - `AnchorSource.ANKLES_DUAL`):** Si ambos tobillos tienen $\text{conf} \ge \text{conf\_threshold}$ (por defecto $0.5$) y la altura de la caja satisface $h_{\text{bbox}} \ge \text{min\_ankle\_bbox\_height}$, se proyecta su punto medio con confianza media $\frac{c_{15}+c_{16}}{2} \times 1.0$ y covarianza de medición nominal ($1.0\times R$). Fuente: `AnchorSource.ANKLES_DUAL`.
+2. **Nivel 2 (Fidelidad Monocular - `AnchorSource.ANKLE_SINGLE`):** Si un solo tobillo supera el umbral ($\text{conf} \ge 0.5$) y $h_{\text{bbox}} \ge \text{min\_ankle\_bbox\_height}$, se utiliza dicho tobillo como anclaje físico con confianza penalizada por $\times 0.75$ e inflación de covarianza $2.0\times R$. Fuente: `AnchorSource.ANKLE_SINGLE`.
+3. **Nivel 3 (Proxy de Caja / Escala Lejana - `AnchorSource.BBOX_BOTTOM`):** Si ambos tobillos están ocluidos ($\text{conf} < 0.5$) o la caja se encuentra en campo lejano ($h_{\text{bbox}} < \text{min\_ankle\_bbox\_height}$), `extract_ground_anchor` proyecta el punto inferior central del bounding box $(\frac{x_1+x_2}{2}, y_2)$ con confianza penalizada por $\times 0.40$ e inflación de covarianza de medición $5.0\times R$ en la actualización de Joseph del filtro de Kalman. Fuente: `AnchorSource.BBOX_BOTTOM`.
+4. **Nivel 4 (Filtro Cinemático / Coasting - `AnchorSource.TRACKER_PREDICTED`):** Si ocurre un *dropout* completo de detección (sin propuesta válida en el cuadro), el **MultiTargetKalmanTracker** retiene el track en modo `COASTING` extrapolando su estado cinemático $[X, Y, v_x, v_y]^T$ durante un máximo de $N_{\text{missed}} \le 5$ fotogramas con decaimiento exponencial de confianza $0.85^k$. Fuente: `AnchorSource.TRACKER_PREDICTED`.
 
 ### 2. Contrato de Estimación Métrica (Confidence Propagation)
-Las coordenadas en metros no deben tratarse como valores escalares idénticos. Representan el tipo conceptual:
+Las coordenadas en metros e incertidumbres cinemáticas se encapsulan en `PositionEstimate` y `Track` (`src/core/kalman_filter.py`):
 
 ```python
+class AnchorSource(str, Enum):
+    ANKLES_DUAL = "ANKLES_DUAL"              # Tier 1: Midpoint of left and right ankles (conf * 1.0, 1.0x R)
+    ANKLE_SINGLE = "ANKLE_SINGLE"            # Tier 2: Single detected ankle keypoint (conf * 0.75, 2.0x R)
+    BBOX_BOTTOM = "BBOX_BOTTOM"              # Tier 3: Bounding box bottom-center proxy (score * 0.40, 5.0x R)
+    TRACKER_PREDICTED = "TRACKER_PREDICTED"  # Tier 4: Dead reckoning via Kalman coasting (conf * 0.85^k)
+
+
 @dataclass(frozen=True)
 class PositionEstimate:
-    xy_m: Tuple[float, float]
-    confidence: float
-    source: str  # "ankles_dual" | "ankle_single" | "bbox_bottom" | "tracker_predicted"
-    covariance: Optional[np.ndarray] = None
+    xy_m: Tuple[float, float]                        # (x_m, y_m) on floor plane Zw = 0
+    confidence: float                                # Normalized reliability in [0.0, 1.0]
+    source: AnchorSource                             # "ANKLES_DUAL" | "ANKLE_SINGLE" | "BBOX_BOTTOM" | "TRACKER_PREDICTED"
+    status: ObservationStatus = ObservationStatus.OBSERVED  # "OBSERVED" | "PREDICTED" | "STALE"
+    covariance: Optional[np.ndarray] = None          # 2x2 spatial position error covariance matrix (m^2)
+    missed_count: int = 0                            # Consecutive missed frames k (Track also exposes x_m, y_m, vx_m_s, vy_m_s)
 ```
 
 ## Consecuencias
-- **Sin Puntos Ciegos:** Si un operario camina detrás de un pallet o máquina, el sistema mantiene el seguimiento métrico y el cálculo de intrusión mediante *coasting* sin perder su historial de permanencia (*dwell time*).
-- **Semántica Clara en Auditoría:** Un evento de alarma disparado con `source="ankles_dual"` tiene alta certeza geométrica; uno disparado con `source="tracker_predicted"` indica que el trabajador ya venía en trayectoria de incursión antes de ocluirse.
-- **Fail-Safe Temporal:** La ventana de coasting está acotada ($160\text{ ms}$); no se extrapola indefinidamente para evitar derivas cinemáticas.
+- **Sin Puntos Ciegos:** Si un operario camina detrás de un pallet o máquina, el sistema mantiene el seguimiento métrico y el cálculo de intrusión mediante fallback `BBOX_BOTTOM` ($5.0\times R$) o *coasting* `TRACKER_PREDICTED` sin perder su historial de permanencia (*dwell time*).
+- **Semántica Clara en Auditoría:** Un evento de alarma disparado con `source="ANKLES_DUAL"` tiene alta certeza geométrica; uno disparado con `source="BBOX_BOTTOM"` o `source="TRACKER_PREDICTED"` conserva trazabilidad explícita de su nivel de degradación.
+- **Fail-Safe Temporal:** La ventana de coasting está acotada ($167\text{ ms}$, $k \le 5$); no se extrapola indefinidamente para evitar derivas cinemáticas.

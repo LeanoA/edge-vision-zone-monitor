@@ -132,27 +132,30 @@ $$\begin{bmatrix} X_w \\ Y_w \\ 1 \end{bmatrix} \sim H \begin{bmatrix} u \\ v \\
 
 La calibración se realiza a partir de 4 o más puntos coplanares con coordenadas métricas conocidas en planta mediante el algoritmo Solve-PnP / DLT.
 
-### 4.2 Lógica de Intrusión y Permanencia: Spatial FSM
+### 4.2 Lógica de Intrusión y Permanencia: Spatial FSM (Statecharts Ortogonales — ADR-009)
 
-Para erradicar el *flickering* en las alarmas, la FSM opera con 6 estados y doble histéresis:
+Para erradicar el *flickering* en las alarmas y evitar acoplar topología espacial con duración temporal, la arquitectura desacopla el razonamiento de seguridad en dos regiones de estado ortogonales (`OccupancyState` $\times$ `DwellState`) más el estado supervisor del sistema (`SafetyState`):
 
 ```
-       [ OUTSIDE ]
-            │ (Entra a P_danger)
-            ▼
-    [ ENTER_PENDING ] ──(N_confirm completado)──► [ INTRUSION_ACTIVE ]
-            │                                             │ (Dwell time > T_warn)
-            │ (Sale antes de N_confirm)                   ▼
-            └───────────────────────────────────► [ DWELL_WARNING ]
-                                                          │ (Dwell time > T_violation)
-                                                          ▼
-                                                  [ DWELL_VIOLATION ]
-                                                          │ (Sale de P_release)
-                                                          ▼
-                                                   [ EXIT_PENDING ]
-                                                          │ (T_exit completado)
-                                                          ▼
-                                                      [ OUTSIDE ]
+1. Región Espacial (OccupancyState):
+   [ OUTSIDE ] ──(Entra a P_danger)──► [ ENTER_PENDING ] ──(N_confirm o bypass vn >= 1.6 m/s)──► [ INSIDE ]
+        ▲                                     │                                                      │
+        └────────(Sale antes de N_confirm)────┘                                       (Sale de P_danger)
+        ▲                                                                                            ▼
+        └────(N_release cuadros OBSERVED fuera de P_release)──── [ EXIT_PENDING ] ◄──(Retorna a P_danger)
+
+2. Región Temporal (DwellState):
+   [ NONE ] ──(Occupancy == INSIDE, t = 0.0s)──► [ NORMAL ] ──(t >= T_warn)──► [ WARNING ] ──(t >= T_violation)──► [ VIOLATION ]
+      ▲                                               │                            │                                     │
+      └───────────────────────(Occupancy != INSIDE: reset t = 0.0s)────────────────┴─────────────────────────────────────┘
+
+3. Estado Supervisor de Seguridad (SafetyState):
+   • SAFE              : Sin ocupación en zonas críticas ni de advertencia (trip = False).
+   • WARNING_APPROACH  : Presencia detectada en P_warning (pre-alerta, trip = False).
+   • DANGER_INTRUSION  : Ocupación confirmada INSIDE / EXIT_PENDING en P_danger (disparo inmediato t = 0.0s, trip = True).
+   • MUTED             : Silenciamiento temporal autorizado bajo condiciones controladas.
+   • FAULT             : Fallo de sensor, geometría o excepción de pipeline (fail-safe trip = True).
+   • LOCKOUT           : Enclavamiento por desaparición de intruso dentro de P_danger (requiere SpatialFSM.reset(), trip = True).
 ```
 
 * **Histéresis Espacial:**

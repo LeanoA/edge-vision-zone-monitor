@@ -31,13 +31,16 @@ Donde:
 
 ---
 
-## 2. Anclaje Espacial Mediante Keypoints de Tobillos
+## 2. Anclaje Espacial Mediante Keypoints de Tobillos y Degradación Jerárquica (`AnchorSource`)
 
 Para anular las falsas alarmas provocadas por la inclinación cenital o angular de la cámara enfrente de operadores cuyos torsos o cabezas intersectan la zona pero cuyos pies están fuera:
-* **Prohibición:** Se prohíbe el centroide de la caja delimitadora (*bounding box centroid*) o la base central de la caja 2D.
-* **Punto de Contacto Real:**
-  $$p_{\text{ground}} = \frac{p_{\text{ankle-left}} + p_{\text{ankle-right}}}{2}$$
-  Si un tobillo está ocluido ($conf < 0.3$), se adopta el tobillo visible con mayor confianza. Si ambos están ocluidos temporalmente, el Filtro Kalman 2D extrapola la trayectoria en espacio métrico.
+* **Prohibición del Centroide 2D:** Se prohíbe el centroide geométrico de la caja delimitadora (*bounding box centroid*), dado que proyecta el torso a mitad de altura fuera del plano $Z_w = 0$.
+* **Jerarquía de Anclaje en Suelo (`extract_ground_anchor`, `conf_threshold = 0.5` por defecto):**
+  1. **Tier 1 (`ANKLES_DUAL`):** Si ambos tobillos superan el umbral ($\text{conf} \ge 0.5$) y la altura aparente de la caja cumple $h_{\text{bbox}} \ge h_{\min}$ (`min_ankle_bbox_height`), se proyecta el punto medio con factor de confianza $\times 1.0$:
+     $$p_{\text{ground}} = \frac{p_{\text{ankle-left}} + p_{\text{ankle-right}}}{2}$$
+  2. **Tier 2 (`ANKLE_SINGLE`):** Si un solo tobillo es visible ($\text{conf} \ge 0.5$) y $h_{\text{bbox}} \ge h_{\min}$, se adopta dicho tobillo con penalización de confianza $\times 0.75$ e inflación de covarianza $R$ ($2.0\times$).
+  3. **Tier 3 (`BBOX_BOTTOM`):** Si ambos tobillos están ocluidos ($\text{conf} < 0.5$) o el operario se encuentra en campo lejano ($h_{\text{bbox}} < h_{\min}$, ej. `min_ankle_bbox_height = 120.0`), se utiliza el borde inferior central de la caja $(\frac{x_1+x_2}{2}, y_2)$ con penalización de confianza $\times 0.40$ e inflación de covarianza de medición $R$ de $5.0\times$ ([ADR-007](../decisions/adr-007-occlusion-handling-confidence-propagation.md), [ADR-013](../decisions/adr-013-foveated-far-field-roi-inference.md)).
+  4. **Tier 4 (`TRACKER_PREDICTED`):** Ante pérdida total de detección (*dropout*), el Filtro Kalman 2D extrapola la trayectoria cinemática en modo `COASTING` hasta $k \le 5$ cuadros con decaimiento de confianza $0.85^k$.
 
 ---
 
