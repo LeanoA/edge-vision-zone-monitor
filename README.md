@@ -6,7 +6,7 @@
 [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-CoreML%20%7C%20CPU-orange?logo=onnx&logoColor=white)](https://onnxruntime.ai/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-Computer%20Vision-5C3EE8?logo=opencv&logoColor=white)](https://opencv.org/)
 [![CI/CD](https://img.shields.io/github/actions/workflow/status/LeanoA/edge-vision-zone-monitor/deploy.yml?branch=main&label=CI%2FCD&logo=githubactions&logoColor=white)](https://github.com/LeanoA/edge-vision-zone-monitor/actions/workflows/deploy.yml)
-[![Tests](https://img.shields.io/badge/tests-219%20passed%20(100%25)-success?logo=pytest&logoColor=white)](#)
+[![Tests](https://img.shields.io/badge/tests-221%20passed%20(100%25)-success?logo=pytest&logoColor=white)](#)
 [![Latency](https://img.shields.io/badge/latency%20(p95)-%3C%2022ms%20(T1%20budget)-00b4d8?logo=speedtest&logoColor=white)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -59,7 +59,7 @@ python scripts/run_demo.py \
 > [!TIP]
 > **Choosing Between `run_dataset_test.py` and `run_demo.py`:**
 > * **`scripts/run_dataset_test.py --dataset <name>` (Recommended for Benchmark Cases):** Automatically maps `<name>` to its video source, dedicated YAML calibration (`configs/datasets/<name>.yaml`), and far-field defaults (`--conf-threshold 0.4`, `--min-ankle-bbox-height 120.0`). Saves `annotated_<name>.mp4`, `events.jsonl`, and `summary.json` under `data/results/<name>/`. Add `--display --realtime` to watch the live dual viewport at native FPS.
-> * **`scripts/run_demo.py` (Custom Streams / Webcams / RTSP):** Requires passing `--config <yaml>` explicitly alongside `--source <video>` (otherwise it falls back to `configs/default_config.yaml` for $6\text{m} \times 6\text{m}$ synthetic scenes).
+> * **`scripts/run_demo.py` (Custom Streams / Webcams / RTSP):** Requires passing `--config <yaml>` explicitly alongside `--source <video>` (otherwise it falls back to `configs/default_config.yaml` for $4\text{m} \times 6\text{m}$ synthetic scenes).
 
 ---
 
@@ -86,19 +86,20 @@ The architecture is structured across 5 sequential perception and decision stage
 flowchart TD
     subgraph PERCEPTION ["1. PERCEPTION"]
         CAM["Camera Frame"] --> INFER["Pose Inference<br/>(YOLO11n-Pose ONNX)"]
+        CAM -.-> ROI["Optional Foveated Far-Field ROI Crop & 2D/Metric Deduplication"]
+        ROI -.-> KP
         INFER --> KP["Keypoint Extraction<br/>(Left & Right Ankles)"]
         KP --> GROUND["Ground Contact Estimate<br/>(Ankle Midpoint / Fallback)"]
     end
 
     subgraph GEOMETRY ["2. GEOMETRY"]
-        GROUND --> HOMO["Planar Homography H<br/>(DLT 3x3, κ(H) < 10⁶)"]
+        GROUND --> HOMO["Planar Homography H<br/>(DLT 3x3, Condition Gate: κ(H) < 10¹²)"]
         HOMO --> METRIC["World Plane Coordinates<br/>(X, Y) [m] on floor Zw = 0"]
     end
 
     subgraph STATE_ESTIMATION ["3. STATE ESTIMATION"]
-        METRIC --> MOT["Multi-Target Association<br/>(Munkres / Hungarian)"]
-        MOT --> KF["Kinematic Kalman Filter<br/>(Mahalanobis Gating & Coasting)"]
-        KF --> TRAJ["Filtered Metric Trajectory<br/>(X, Y, v_x, v_y) & Epistemic Status"]
+        METRIC --> KF_PRED["Kinematic Kalman Prediction (4D State [X, Y, vx, vy]ᵀ)"] --> GATE["Ellipsoidal Mahalanobis Gating (χ²₂ ≤ 9.210)"] --> MOT["Global Bipartite Assignment (Munkres / Hungarian)"] --> KF_UPD["Joseph-Form Update, Coasting & Spatial Birth NMS (0.6m)"]
+        KF_UPD --> TRAJ["Filtered Metric Trajectory<br/>(X, Y, v_x, v_y) & Epistemic Status"]
     end
 
     subgraph DECISION_LOGIC ["4. DECISION LOGIC"]
@@ -131,11 +132,11 @@ flowchart TD
 | Architectural Layer | Component / Flow | Code Module | Implementation Status (Edge AI) |
 | :--- | :--- | :--- | :--- |
 | **1. PERCEPTION** | Camera Frame $\to$ Pose Inference $\to$ Keypoints $\to$ Ground Contact | `src/inference/onnx_engine.py`<br>`src/pipeline/safety_pipeline.py` | **100% Implemented**<br>• YOLO11n-Pose ONNX inference (`CoreMLExecutionProvider` / CPU / CUDA).<br>• Anatomical ankle extraction (`left_ankle: 15`, `right_ankle: 16`) with fallback to bounding box base ([ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md), [ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md)).<br>• Declarative foveated far-field ROI inference (`far_field_roi`) with 2D & metric deduplication ([ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md)). |
-| **2. GEOMETRY** | Homography Projection $\to$ Metric $(X, Y)$ on floor plane ($Z_w = 0$) | `src/core/homography.py` | **100% Implemented**<br>• Planar DLT $3 \times 3$ mapping with collinearity verification and numerical condition threshold $\kappa(H) < 10^6$ ([ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md), [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md)). |
+| **2. GEOMETRY** | Homography Projection $\to$ Metric $(X, Y)$ on floor plane ($Z_w = 0$) | `src/core/homography.py` | **100% Implemented**<br>• Planar DLT $3 \times 3$ mapping with collinearity verification and condition gate $\kappa(H) < 10^{12}$ ([ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md), [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md)). |
 | **3. STATE ESTIMATION** | 2D Kinematic Kalman Filter $\to$ Filtered Metric Trajectory | `src/core/kalman_filter.py` | **100% Implemented**<br>• Constant Velocity (CV) kinematic state model with Kalman gain $K_k$.<br>• Three-tier observation epistemology (`OBSERVED`, `PREDICTED`, `STALE`) with quadratic divergence bounding ([ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md), [ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md)).<br>• Global combinatorial assignment (Munkres / Hungarian) with Mahalanobis validation gate $\chi^2_2(0.99) \le 9.21$ and World-Space Spatial Birth NMS ($0.6\text{ m}$) ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md)). |
 | **4. DECISION LOGIC** | Zone Containment $\to$ Spatial FSM $\to$ Dwell Classifier | `src/core/spatial_fsm.py` | **100% Implemented**<br>• Orthogonal Statecharts regions: `OccupancyState` (`OUTSIDE`, `ENTER_PENDING`, `INSIDE`, `EXIT_PENDING`) $\times$ `DwellState` (`NONE`, `NORMAL`, `WARNING`, `VIOLATION`) ([ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md)).<br>• Instant fail-safe trip on confirmed `INSIDE` ($t = 0\text{ s}$) and dynamic velocity bypass for $v_n \ge 1.6\text{ m/s}$ (ISO 13855). |
 | **5. OUTPUT** | Dual Overlay $\to$ Telemetry Stream $\to$ Metrics | `src/utils/visualizer.py`<br>`scripts/run_demo.py` | **100% Implemented**<br>• Real-time dual compositor (Annotated Perspective + Top-Down Metric BEV).<br>• Structured JSONL telemetry emission and latency percentile reporting.<br>*(Edge AI Roadmap: Industrial telemetry exporter for MQTT / ZeroMQ / gRPC plant protocols)*. |
-| **6. PROFILER (Orthogonal)** | Granular stage profiling $\to$ End-to-End Latency ($T_1$) | `src/pipeline/safety_pipeline.py`<br>`src/inference/benchmark.py` | **95% Implemented**<br>• High-resolution timer across all pipeline stages ($T_1 = t_{\text{pre}} + t_{\text{inf}} + t_{\text{pose}} + t_{\text{proj}} + t_{\text{track}} + t_{\text{fsm}}$) reporting p50, p95, and p99 percentiles.<br>*(Next step 5%: Hardware timestamp ingestion via V4L2 ring buffer)*. |
+| **6. PROFILER (Orthogonal)** | Granular stage profiling $\to$ End-to-End Latency ($T_1$) | `src/pipeline/safety_pipeline.py`<br>`scripts/benchmark.py` | **95% Implemented**<br>• High-resolution timer across all pipeline stages ($T_1 = t_{\text{pre}} + t_{\text{inf}} + t_{\text{pose}} + t_{\text{proj}} + t_{\text{track}} + t_{\text{fsm}}$) reporting p50, p95, and p99 percentiles.<br>*(Next step 5%: Hardware timestamp ingestion via V4L2 ring buffer)*. |
 
 ### 2. Secondary Scope (Evaluation Extensions)
 * **PyTorch vs ONNX Runtime Comparison:** Empirical throughput and latency benchmarking between native PyTorch and ONNX Runtime.
@@ -164,7 +165,7 @@ This project serves as an experimental platform to rigorously resolve engineerin
   * *Theoretical Framework:* Numerical differentiation severely amplifies high-frequency measurement noise. At 30 FPS ($\Delta t = 0.033\text{ s}$), a stochastic keypoint detection jitter of just $2\text{ cm}$ produces a spurious velocity spike of $0.6\text{ m/s}$ ($2.16\text{ km/h}$).
   * *Solution & Validation:* The Kalman filter decouples noisy measurements via optimal gain $K_k$, producing smooth continuous velocity and position vectors with bounded covariance ([`tests/test_kalman.py`](tests/test_kalman.py)).
 * **Q3: What is the true reprojection error of a planar homography and how does matrix conditioning impact safety?**
-  * *Theoretical Framework:* With $N=4$ coplanar landmarks, the DLT linear system is exactly determined ($8 \times 8$), making algebraic training residual identically 0. However, a matrix condition number $\kappa(H) > 10^5$ reveals severe projective degeneration (nearly collinear points or grazing angles), amplifying metric errors under tiny pixel perturbations.
+  * *Theoretical Framework:* With $N=4$ coplanar landmarks, the DLT linear system is exactly determined ($8 \times 8$), making algebraic training residual identically 0. However, a matrix condition number $\kappa(H) > 10^{12}$ reveals severe projective degeneration (nearly collinear points or grazing angles), amplifying metric errors under tiny pixel perturbations.
   * *Validation:* [`tests/test_homography.py`](tests/test_homography.py) audits collinearity, condition number $\kappa(H)$, and inverse isometric invariance.
 
 ### 2. Applied Dynamics & Temporal Hysteresis
@@ -193,10 +194,10 @@ This project serves as an experimental platform to rigorously resolve engineerin
 * **Q6: How does the system behave when feet or ankles are occluded by machinery or pallets? ([See ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md))**
   * *Failure Mode:* If machinery blocks an operator's feet, the pose model reports low confidence (`conf < 0.5`) on both ankles. Dropping detections creates a blind hazard; using low-confidence points injects catastrophic noise into the homography.
   * *Graceful Degradation Hierarchy:*
-    1. *Dual Ankles ($\text{conf} \ge 0.5$):* Direct midpoint projection $\to$ full fidelity (`source="ankles_dual"`).
-    2. *Single Ankle:* Fallback to visible ankle $\to$ bounded lateral offset (`source="ankle_single"`).
-    3. *Both Occluded:* The kinematic Kalman filter enters *coasting mode*, extrapolating trajectory $[\dot{X}, \dot{Y}]$ for up to 5 frames ($\approx 160\text{ ms}$) (`source="tracker_predicted"`).
-    4. *Extended Occlusion:* Fallback to confidence-penalized bounding box bottom-center or controlled track termination.
+    1. *Tier 1 (`source="ANKLES_DUAL"`):* Both ankles visible ($\ge 0.5$) and $h_{\text{bbox}} \ge h_{\min}$ $\implies$ midpoint, confidence $= \frac{c_{15} + c_{16}}{2} \times 1.0$.
+    2. *Tier 2 (`source="ANKLE_SINGLE"`):* One ankle visible $\implies$ single ankle coordinate, confidence penalized by $\times 0.75$.
+    3. *Tier 3 (`source="BBOX_BOTTOM"`):* Both ankles occluded or far-field scale ($h_{\text{bbox}} < h_{\min}$) $\implies$ bounding-box bottom-center $(\frac{x_1+x_2}{2}, y_2)$, confidence penalized by $\times 0.40$ ($R$ scaled by $5.0\times$).
+    4. *Tier 4 (`source="TRACKER_PREDICTED"`):* Full detection dropout $\implies$ kinematic Kalman coasting up to $k \le 5$ frames with $0.85^k$ confidence decay.
   * *Validation:* [`tests/test_pipeline.py`](tests/test_pipeline.py) and [`tests/test_kalman.py`](tests/test_kalman.py).
 * **Q7: Why are Kalman predictions not physical truth and why must safety de-escalation be asymmetric? ([See ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md))**
   * *Epistemic Conflation:* In the absence of sensor photons, state prediction $\hat{\mathbf{x}}_k = F\hat{\mathbf{x}}_{k-1}$ is open-loop speculation. A worker may halt or trip unseen; maximum quadratic divergence $\|\Delta \mathbf{p}(t)\| \le \frac{1}{2} a_{\max} t^2 + v_0 t (1 - \cos \theta)$ exceeds the hysteresis margin ($\Delta d = 200\text{ mm}$) by frame 4 ($> 100\text{ ms}$).
@@ -265,7 +266,7 @@ homography numerical condition (matrix condition number κ(H))
 #### Homography Formulation
 $$\begin{bmatrix} X' \\ Y' \\ W \end{bmatrix} = H \begin{bmatrix} u \\ v \\ 1 \end{bmatrix}, \quad X = \frac{X'}{W}, \quad Y = \frac{Y'}{W}$$
 
-Matrix $H$ is computed via Direct Linear Transformation (DLT) with non-collinearity verification and condition number monitoring in [`src/core/homography.py`](src/core/homography.py). For architectural details, see [ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md) and [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md).
+Matrix $H$ is computed via Direct Linear Transformation (DLT) with non-collinearity verification and condition number monitoring $\kappa(H) = \frac{\sigma_{\max}}{\sigma_{\min}} < 10^{12}$ in [`src/core/homography.py`](src/core/homography.py). For architectural details, see [ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md) and [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md).
 
 ---
 
@@ -341,11 +342,11 @@ sequenceDiagram
 
     C->>P: process_frame(frame)
     activate P
-    P->>P: preprocess: letterbox (640x640)
-    P->>O: infer(tensor) -> pose keypoints
-    P->>P: extract ankle anchors (kp 15, 16)
-    P->>H: project_batch(anchors) -> metric coords (X, Y)
-    P->>K: update(metric coords) -> active tracks & velocities
+    P->>P: preprocess: letterbox (640x640) + optional far_field_roi crop
+    P->>O: infer(tensor) [+ optional infer(roi_tensor)] -> pose keypoints
+    P->>P: extract ground anchors (kp 15, 16 / BBOX_BOTTOM) & 2D deduplicate
+    P->>H: project_batch(anchors) -> metric coords (X, Y) & metric deduplicate (0.55m)
+    P->>K: update(PositionEstimates): predict -> Mahalanobis gate (χ²₂ ≤ 9.210) -> Hungarian -> Joseph update / Birth NMS (0.6m)
     P->>F: update(tracks) -> SafetyOutput (trip, states, dwell)
     P-->>C: PipelineResult (output, tracks, latencies)
     deactivate P
@@ -366,21 +367,32 @@ sequenceDiagram
 .
 ├── AGENTS.md                   # Project rules, persona, and SDD workflow
 ├── README.md                   # Master technical specification and architecture guide
+├── MEDIUM_POST.md              # Architectural deep-dive article
 ├── configs/
 │   ├── default_config.yaml     # Baseline calibration landmarks, polygons, and thresholds
-│   └── datasets/               # Dataset-specific YAML profiles (PETS, OpenCV, OpenVINO)
+│   └── datasets/               # Dataset-specific YAML profiles
+│       ├── mendeley_industrial.yaml
+│       ├── mendeley_walkway_violation.yaml
+│       ├── opencv_vtest.yaml
+│       ├── openvino_people.yaml
+│       ├── pets2009_s2_l1.yaml
+│       ├── sequence_a_clean_incursion.yaml
+│       ├── sequence_b_occlusion_coasting.yaml
+│       └── sequence_c_dwell_loitering.yaml
 ├── data/
 │   ├── raw/                    # Downloaded video datasets (git ignored)
 │   ├── results/                # Annotated videos and JSONL telemetry (git ignored)
 │   └── samples/                # Deterministic synthetic calibration sequences
 ├── docs/
 │   ├── architecture/           # Engineering case study, diagrams, and deep dives
-│   │   └── engineering-case-study.md # Comprehensive architectural case study
+│   │   ├── engineering-case-study.md
+│   │   ├── industrial-edge-ai-specification.md
+│   │   ├── preguntas-y-respuestas-arquitectura.md
+│   │   └── safety-directives-iso13855.md
+│   ├── benchmarks/             # Empirical benchmark JSON/MD artifacts & test plan
 │   ├── data/datasets.md        # Dataset specifications and empirical catalog
-│   ├── figures/                # Architectural diagrams and benchmark plots (PNG)
-│   └── decisions/              # Architecture Decision Records (ADRs)
-│       ├── README.md           # ADR index
-│       └── adr-001-*.md        # YOLO-Pose vs Bounding Box Centroid
+│   ├── figures/                # Architectural diagrams and benchmark plots (PNG/GIF)
+│   └── decisions/              # Architecture Decision Records (ADR-001 through ADR-013)
 ├── models/
 │   └── export_onnx.py          # YOLO-Pose ONNX export and validation tool
 ├── openspec/                   # Canonical specifications and SDD change packages
@@ -390,30 +402,50 @@ sequenceDiagram
 │   │   ├── kalman_filter.py    # 2D Metric Kalman Filter & MultiTargetKalmanTracker
 │   │   └── spatial_fsm.py      # SpatialFSM with dual hysteresis and dwell classifier
 │   ├── inference/
-│   │   └── onnx_engine.py      # ONNX Runtime wrapper (CoreML / CPU ARM NEON)
+│   │   ├── onnx_engine.py      # ONNX Runtime wrapper (CoreML / CPU ARM NEON / CUDA)
+│   │   └── torch_engine.py     # Native PyTorch baseline wrapper (CPU / MPS)
 │   ├── pipeline/
 │   │   └── safety_pipeline.py  # End-to-end pipeline orchestrator (ISO 13855 T1 budget)
 │   └── utils/
+│       ├── benchmark_verifier.py # Cryptographic provenance & invariant verifier
+│       ├── mot_metrics.py      # Multi-Object Tracking (MOTA / IDF1) evaluator
+│       ├── synthetic_generator.py # Photorealistic 2.5D pinhole synthetic generator
 │       └── visualizer.py       # Real-time dual compositor (Camera + Metric BEV)
 ├── tests/
 │   ├── conftest.py             # Deterministic synthetic test fixtures (CI-ready)
-│   ├── test_dataset_ingestion.py # Resilient downloader and test harness tests
-│   ├── test_export.py          # ONNX export and validation tests
-│   ├── test_onnx_engine.py     # Runtime and inference engine tests
+│   ├── test_adaptive_anchor.py # Scale-adaptive anchor & foveated ROI tests
 │   ├── test_benchmark.py       # Latency percentile calculation tests
+│   ├── test_benchmark_audit.py # Comprehensive benchmark suite audit tests
+│   ├── test_benchmark_traceability.py # Provenance & ground-truth invariant tests
+│   ├── test_dataset_ingestion.py # Resilient downloader and test harness tests
+│   ├── test_dataset_walkway.py # Mendeley walkway violation & far-field ROI tests
+│   ├── test_demo_runner.py     # CLI demo orchestrator tests
+│   ├── test_export.py          # ONNX export and validation tests
 │   ├── test_fsm.py             # Unit tests for spatial FSM transitions
 │   ├── test_homography.py      # Unit tests for metric homography projection
 │   ├── test_kalman.py          # Unit tests for Kalman tracking and MOT
+│   ├── test_mot_metrics.py     # MOTA/IDF1 metric computation tests
+│   ├── test_onnx_engine.py     # ONNX Runtime inference engine tests
 │   ├── test_pipeline.py        # Integrated safety pipeline tests
+│   ├── test_quantization_benchmarks.py # FP32/FP16/INT8 quantization tests
+│   ├── test_runtime_benchmarks.py # Runtime engine comparison tests
+│   ├── test_synthetic_generator.py # Pinhole synthetic video generator tests
+│   ├── test_torch_engine.py    # PyTorch eager engine tests
 │   └── test_visualizer.py      # Dual compositor visual tests
 └── scripts/
     ├── audit_and_reproduce_benchmarks.py # Master benchmark audit suite
     ├── benchmark.py            # Latency and throughput benchmark in ONNX Runtime
+    ├── benchmark_quantization.py # Precision & metric drift evaluator (FP32/FP16/INT8)
+    ├── benchmark_runtimes.py   # Runtime showdown evaluator (PyTorch vs ONNX)
+    ├── build_master_study_guide.py # Master architecture study guide generator (MD)
     ├── download_datasets.py    # Resilient multi-mirror dataset downloader
     ├── generate_figures.py     # Publication-grade technical figures generator
     ├── generate_samples.py     # Deterministic synthetic video generator
+    ├── generate_study_pdf.py   # Typst/PDF master study guide compiler
+    ├── prepare_sprites.py      # RGBA alpha-feathered worker sprite extractor
     ├── run_dataset_test.py     # Empirical dataset evaluation harness
-    └── run_demo.py             # Interactive and headless demo runner
+    ├── run_demo.py             # Interactive and headless demo runner
+    └── verify_synthetic_results.py # Synthetic benchmark invariant verifier
 ```
 
 ---
@@ -447,7 +479,7 @@ sequenceDiagram
 * **Model:** YOLOv8 / YOLO11 Pose (Ultralytics $\to$ ONNX)
 * **Inference Runtime:** ONNX Runtime (`CoreMLExecutionProvider` on Apple Silicon / `CPUExecutionProvider` / CUDA)
 * **Geometry & Math:** OpenCV, NumPy, Shapely (GEOS C-Engine)
-* **Testing:** PyTest (219 automated tests passing)
+* **Testing:** PyTest (221 automated tests passing)
 
 ---
 
@@ -475,8 +507,8 @@ The quantitative claims in the Architecture Decision Records (ADRs), master stud
 | Controlled Experiment | Target Dataset | Experimental Rationale | Core Metric Measured |
 | :--- | :--- | :--- | :--- |
 | **Exp 1: Runtime Engine Showdown** | **`openvino_people`** ($1080\text{p}$) | Continuous real pedestrian flow in Full HD to measure raw inference latency without synthetic bias. | **$4.36\times$ speedup** on CoreML ($17.83\text{ ms}$ mean, $20.80\text{ ms}$ $p_{95}$) vs PyTorch CPU ($77.80\text{ ms}$). |
-| **Exp 2: Quantization & Metric Drift** | **`sequence_a_clean_incursion`** | Sub-millimeter ground truth floor positions required to measure physical coordinate drift ($Z_w = 0$). | Metric Floor Error: $\text{RMSE} = 33.32\text{ cm}$ (FP32) vs $\text{RMSE} = 89.06\text{ cm}$ (INT8 dynamic on CoreML). |
-| **Exp 3: Resolution & Far-Field Sensitivity** | **`mendeley_walkway_violation`** | Industrial corridor of $15\text{ m}$ depth with workers walking towards and away from camera. | Far-field human detection ($Y > 8\text{ m}$): 83 detections ($640\text{p}$) vs 639 detections ($960\text{p}$, $7.7\times$ increase). |
+| **Exp 2: Quantization & Metric Drift** | **`sequence_a_clean_incursion`** | Sub-millimeter ground truth floor positions required to measure physical coordinate drift ($Z_w = 0$). | Metric Floor Error: $\text{RMSE} = 33.32\text{ cm}$ (FP32) vs $\text{RMSE} = 89.06\text{ ms}$ latency / $18.96\text{ cm}$ RMSE (INT8 dynamic on CoreML). |
+| **Exp 3: Resolution & Far-Field Sensitivity** | **`mendeley_walkway_violation`** | Industrial corridor of $15\text{ m}$ depth with workers walking towards and away from camera. | Far-field human detection ($Y_w > 6\text{ m}$): 83 detections ($640\text{p}$) vs 639 detections ($960\text{p}$, $7.7\times$ increase). |
 | **Exp 4: Granular Latency Profiling** | **$1080\text{p}$ Industrial Stream** | Stage-by-stage timer breakdown across all 7 pipeline components against the ISO 13855 $T_1 \le 50\text{ ms}$ budget. | Ingestion: $1.46\text{ ms}$, Preprocess: $0.87\text{ ms}$, Infe: $16.97\text{ ms}$ ($92\%$), DLT: $0.08\text{ ms}$, Kalman: $0.29\text{ ms}$, FSM: $0.02\text{ ms}$. |
 | **Exp 5: Multi-Target MOT & Gating** | **`pets2009_s2_l1`** & **`sequence_a`** | Dense multi-target crossings and occlusions to validate global combinatorial assignment. | **$\text{MOTA} = 0.961$**, $\text{IDF1} = 0.981$, 0 ID switches, Mahalanobis gate $\chi^2_2(0.99) \le 9.210$. |
 
@@ -496,9 +528,9 @@ In addition to the scientific benchmark matrix, the repository provides 8 config
 
 | Dataset ID (`--dataset`) | Video Source & YAML Profile | Calibrated Space & Zone Delimitation | Key Parameters & Engineering Rationale |
 | :--- | :--- | :--- | :--- |
-| **`sequence_a_clean_incursion`** | `data/samples/sequence_a_clean_incursion.mp4`<br>`configs/datasets/sequence_a_clean_incursion.yaml` | **$6\text{m} \times 6\text{m}$ cell**; central danger zone $[2.0, 2.0] \times [4.0, 4.0]\text{ m}$. | `n_confirm=3`, `hysteresis=0.20m`. Validates debounce and reaction latency ($T_{\text{event}} = 66.7\text{ ms}$) on a constant $1.0\text{ m/s}$ incursion. |
-| **`sequence_b_occlusion_coasting`** | `data/samples/sequence_b_occlusion_coasting.mp4`<br>`configs/datasets/sequence_b_occlusion_coasting.yaml` | **$6\text{m} \times 6\text{m}$ cell**; $0.5\text{ m}$ barrier occluding ankles for 15 frames inside zone. | Validates graceful anchor degradation (`ankles_dual` $\to$ `tracker_predicted` $\to$ `bbox_bottom`) and fail-safe `LOCKOUT` latch on disappearance inside hazard zone. |
-| **`sequence_c_dwell_loitering`** | `data/samples/sequence_c_dwell_loitering.mp4`<br>`configs/datasets/sequence_c_dwell_loitering.yaml` | **$6\text{m} \times 6\text{m}$ cell**; operator stops inside danger zone for $7.0\text{ s}$. | `dwell_warning_s=3.0`, `dwell_violation_s=5.0`. Validates decoupled temporal dwell statechart (`NORMAL` $\to$ `WARNING` $\to$ `VIOLATION`). |
+| **`sequence_a_clean_incursion`** | `data/samples/sequence_a_clean_incursion.mp4`<br>`configs/datasets/sequence_a_clean_incursion.yaml` | **$4\text{m} \times 6\text{m}$ cell**; central danger zone $[1.0, 2.0] \times [3.0, 4.0]\text{ m}$. | `n_confirm=3`, `hysteresis=0.20m`. Validates debounce and reaction latency ($T_{\text{event}} = 66.7\text{ ms}$) on a constant $1.0\text{ m/s}$ incursion. |
+| **`sequence_b_occlusion_coasting`** | `data/samples/sequence_b_occlusion_coasting.mp4`<br>`configs/datasets/sequence_b_occlusion_coasting.yaml` | **$4\text{m} \times 6\text{m}$ cell**; central danger zone $[1.0, 2.0] \times [3.0, 4.0]\text{ m}$; $0.5\text{ m}$ barrier occluding ankles for 15 frames inside zone. | Validates graceful anchor degradation (`ANKLES_DUAL` $\to$ `ANKLE_SINGLE` $\to$ `BBOX_BOTTOM` $\to$ `TRACKER_PREDICTED`) and fail-safe `LOCKOUT` latch on disappearance inside hazard zone. |
+| **`sequence_c_dwell_loitering`** | `data/samples/sequence_c_dwell_loitering.mp4`<br>`configs/datasets/sequence_c_dwell_loitering.yaml` | **$4\text{m} \times 6\text{m}$ cell**; central danger zone $[1.0, 2.0] \times [3.0, 4.0]\text{ m}$; operator stops inside danger zone for $6.0\text{ s}$. | `dwell_warning_s=2.0`, `dwell_violation_s=5.0`. Validates decoupled temporal dwell statechart (`NORMAL` $\to$ `WARNING` $\to$ `VIOLATION`). |
 | **`mendeley_walkway_violation`** | `data/raw/mendeley_industrial/mendeley_walkway_violation.mp4`<br>`configs/datasets/mendeley_walkway_violation.yaml` | **$10\text{m} \times 23\text{m}$ shopfloor ($1080\text{p}$)**; right boundary ($X_w = 10.0\text{ m}$) aligned with the inner yellow border of the green pedestrian walkway. Everything to the left ($[0.0, 0.0] \times [9.8, 23.0]\text{ m}$: grey vehicle lane + press bay) is restricted. | `conf=0.4`, `far_field_roi=[1320, 200, 1700, 580]`, `far_field_conf_threshold=0.30`, `min_ankle_bbox_height=120.0`, `dwell_warning_s=3.0`, `dwell_violation_s=6.0` ([ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md)). 100% far-corridor recall (continuous tracking from Frame 3 at $Y_w = 15.12\text{ m}$), enforcing walkway safety while triggering `DANGER_INTRUSION` (35 frames) / `LOCKOUT` (182 frames) within $T_1 = 30.58\text{ ms} \le 50\text{ ms}$. |
 | **`mendeley_industrial`** | `data/raw/mendeley_industrial/mendeley_unauthorized_intervention.mp4`<br>`configs/datasets/mendeley_industrial.yaml` | **$10\text{m} \times 23\text{m}$ shopfloor ($1080\text{p}$)**; same camera & floor delimitation ($X_w \le 10.0\text{ m}$, $Y_w \le 23.0\text{ m}$ restricted left of green walkway). | `far_field_roi=[1320, 200, 1700, 580]`, `far_field_conf_threshold=0.30` ([ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md)). Tracks operator in far corridor from Frame 3 at $[10.04, 15.23]\text{ m}$ through unauthorized press intervention (65 `WARNING_APPROACH`, 73 `DANGER_INTRUSION`, $T_1 = 30.38\text{ ms} \le 50\text{ ms}$). |
 | **`openvino_people`** | `data/raw/openvino_people/people.mp4`<br>`configs/datasets/openvino_people.yaml` | **Full HD $1080\text{p}$ corridor**; longitudinal floor calibration. | Benchmarks $1080\text{p}$ `unletterbox_keypoints` accuracy and CoreML vs CPU inference throughput (Exp 1). |
@@ -519,7 +551,7 @@ In addition to the scientific benchmark matrix, the repository provides 8 config
 When evaluating industrial CCTV streams via `scripts/run_dataset_test.py` or `scripts/run_demo.py`, three parameters control perception sensitivity and geometric stability:
 * **`--config configs/datasets/<name>.yaml`**: Loads the 4-point DLT homography correspondences (`image` $\leftrightarrow$ `world` in meters), `danger_polygon`, `warning_polygon`, `hysteresis_buffer_m`, debounce frame counts (`n_confirm`, `n_release`), dwell timers (`dwell_warning_s`, `dwell_violation_s`), and optional foveated far-field ROI parameters (`far_field_roi`, `far_field_conf_threshold`).
 * **`--conf-threshold 0.4` (Default in `run_dataset_test.py`, vs `0.5` in `run_demo.py`)**: Balances far-field worker recall in $1080\text{p}$ industrial corridors without dropping below $0.25$, where vertical metal machinery columns can trigger false-positive pose activations.
-* **`--min-ankle-bbox-height 120.0` (Scale-Adaptive Anchor Degradation, [ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md), [ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md))**: When a worker is in the near/mid field ($h_{\text{bbox}} \ge 120\text{ px}$), the pipeline projects anatomical ankle keypoints (`ankles_dual` / `ankle_single`). When the worker is in the far corridor ($h_{\text{bbox}} < 120\text{ px}$, where ankles occupy $< 3\text{ px}$), it automatically degrades to `bbox_bottom` to prevent keypoint jitter.
+* **`--min-ankle-bbox-height 120.0` (Scale-Adaptive Anchor Degradation, [ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md), [ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md))**: When a worker is in the near/mid field ($h_{\text{bbox}} \ge 120\text{ px}$), the pipeline projects anatomical ankle keypoints (`ANKLES_DUAL` / `ANKLE_SINGLE`). When the worker is in the far corridor ($h_{\text{bbox}} < 120\text{ px}$, where ankles occupy $< 3\text{ px}$), it automatically degrades to `BBOX_BOTTOM` to prevent keypoint jitter.
 * **`far_field_roi: [1320, 200, 1700, 580]` & `far_field_conf_threshold: 0.30` (Loaded Automatically from YAML, [ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md))**: For CCTV cameras with deep longitudinal vanishing points, the pipeline crops the far corridor ($380\times 380\text{ px}$) and feeds it as a secondary foveated $640\times 640$ pass ($5.05\times$ spatial gain). This raises far-field recall from $11.4\%$ to $100.0\%$ without model re-training while remaining well within the $T_1 \le 50\text{ ms}$ ISO 13855 budget ($30.5\text{ ms}$ mean).
 * **`--model models/yolo11n-pose-960-fp32.onnx` (Optional High-Resolution Far-Field Mode)**: Replaces the default $640\times 640$ ONNX graph with the $960\times 960$ graph, increasing far-field detections ($Y_w > 6\text{ m}$) on `mendeley_walkway_violation` by **$7.7\times$** (from 83 to 639 detections) while remaining within the $T_1 \le 50\text{ ms}$ budget ($42.5\text{ ms}$ mean).
 

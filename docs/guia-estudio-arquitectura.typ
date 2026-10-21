@@ -129,7 +129,7 @@
 
   #v(1.5cm)
   #text(fill: rgb("#64748B"), size: 8pt)[
-    Documento técnico de referencia y estudio generado automáticamente a partir del repositorio oficial.     Incluye la totalidad de las especificaciones, justificaciones matemáticas, benchmarks y el catálogo completo de los 12 ADRs.
+    Documento técnico de referencia y estudio generado automáticamente a partir del repositorio oficial.     Incluye la totalidad de las especificaciones, justificaciones matemáticas, benchmarks y el catálogo completo de los 13 ADRs.
   ]
 ]
 
@@ -203,32 +203,34 @@ problema en cuatro etapas ortogonales y deterministas:
 ```
                     PERCEPTION
                          │
-Camera frame ──► Pose inference (YOLO11-Pose ONNX / CoreML)
+Camera frame ──► Pose inference (YOLO11-Pose ONNX / CoreML + Foveated Far-Field ROI)
                          │
                          ▼
-                 keypoint extraction (Tobillos 15 y 16)
+                 keypoint extraction (Tobillos 15 y 16) + 2D Deduplication
                          │
                          ▼
-                 ground-point estimate (Fallback a Bbox Bottom)
+                 ground-point estimate (ANKLES_DUAL / ANKLE_SINGLE / BBOX_BOTTOM)
                          │
 ─────────────────────────┼────────────────────────────────────────
                     GEOMETRY
                          │
                          ▼
-                   Homography (DLT 3x3, κ(H) < 10^6)
+                   Homography (DLT 3x3, κ(H) < 10^12)
                          │
                          ▼
-                 (X,Y) estimate [metros en piso físico]
+                 (X,Y) estimate [metros en piso físico] + Metric Deduplication (0.55 m)
                          │
 ─────────────────────────┼────────────────────────────────────────
                   STATE ESTIMATION
                          │
                          ▼
-                Kalman Filter 2D (Velocidad Constante)
+                Kalman Predict 2D (Velocidad Constante)
                          │
                          ▼
-            filtered metric trajectory (OBSERVED / PREDICTED / STALE)
-            + Mahalanobis χ² Gating + Hungarian Association
+            Mahalanobis χ²₂ ≤ 9.210 Gating ──► Hungarian Assignment
+                         │
+                         ▼
+            Joseph Covariance Update (OBSERVED / PREDICTED / STALE)
                          │
 ─────────────────────────┼────────────────────────────────────────
                  DECISION LOGIC
@@ -438,7 +440,7 @@ operarios y detecciones redundantes:
     en actuadores mecánicos.],
     [#strong[005]], [#link(<adr-005>)[ADR-005]], [Verificación
     matemática preventiva de colinealidad y condicionamiento numérico
-    $kappa\(H\)< 10^6$.],
+    $kappa\(H\)< 10^12$.],
     [#strong[006]], [#link(<adr-006>)[ADR-006]], [Micro-optimizaciones
     GEOS (C) y bypass instantáneo por vector de aproximación
     $v_n gt.eq 1.6 upright(" m/s")$.],
@@ -461,6 +463,9 @@ operarios y detecciones redundantes:
     [#strong[012]], [#link(<adr-012>)[ADR-012]], [Composición
     fotorrealista pinhole de identidad única y HUD desacoplado para
     validación formal.],
+    [#strong[013]], [#link(<adr-013>)[ADR-013]], [Inferencia
+    foveada de doble pasada (`far_field_roi`) y delimitación de pasillo
+    seguro ($Y_w lt.eq 6 upright(" m")$).],
   )]
   , kind: table
   )
@@ -732,27 +737,33 @@ La calibración se realiza a partir de 4 o más puntos coplanares con
 coordenadas métricas conocidas en planta mediante el algoritmo Solve-PnP
 \/ DLT.
 
-=== Lógica de Intrusión y Permanencia: Spatial FSM <lógica-de-intrusión-y-permanencia-spatial-fsm>
-Para erradicar el #emph[flickering] en las alarmas, la FSM opera con 6
-estados y doble histéresis:
+=== Lógica de Intrusión y Permanencia: Spatial FSM (Statecharts Ortogonales --- ADR-009) <lógica-de-intrusión-y-permanencia-spatial-fsm-statecharts-ortogonales-adr-009>
+Para erradicar el #emph[flickering] en las alarmas y evitar acoplar
+topología espacial con duración temporal, la arquitectura desacopla el
+razonamiento de seguridad en dos regiones de estado ortogonales
+(`OccupancyState` $times$ `DwellState`) más el estado supervisor del
+sistema (`SafetyState`):
 
 ```
-       [ OUTSIDE ]
-            │ (Entra a P_danger)
-            ▼
-    [ ENTER_PENDING ] ──(N_confirm completado)──► [ INTRUSION_ACTIVE ]
-            │                                             │ (Dwell time > T_warn)
-            │ (Sale antes de N_confirm)                   ▼
-            └───────────────────────────────────► [ DWELL_WARNING ]
-                                                          │ (Dwell time > T_violation)
-                                                          ▼
-                                                  [ DWELL_VIOLATION ]
-                                                          │ (Sale de P_release)
-                                                          ▼
-                                                   [ EXIT_PENDING ]
-                                                          │ (T_exit completado)
-                                                          ▼
-                                                      [ OUTSIDE ]
+1. Región Espacial (OccupancyState):
+   [ OUTSIDE ] ──(Entra a P_danger)──► [ ENTER_PENDING ] ──(N_confirm o bypass vn >= 1.6 m/s)──► [ INSIDE ]
+        ▲                                     │                                                      │
+        └────────(Sale antes de N_confirm)────┘                                       (Sale de P_danger)
+        ▲                                                                                            ▼
+        └────(N_release cuadros OBSERVED fuera de P_release)──── [ EXIT_PENDING ] ◄──(Retorna a P_danger)
+
+2. Región Temporal (DwellState):
+   [ NONE ] ──(Occupancy == INSIDE, t = 0.0s)──► [ NORMAL ] ──(t >= T_warn)──► [ WARNING ] ──(t >= T_violation)──► [ VIOLATION ]
+      ▲                                               │                            │                                     │
+      └───────────────────────(Occupancy != INSIDE: reset t = 0.0s)────────────────┴─────────────────────────────────────┘
+
+3. Estado Supervisor de Seguridad (SafetyState):
+   • SAFE              : Sin ocupación en zonas críticas ni de advertencia (trip = False).
+   • WARNING_APPROACH  : Presencia detectada en P_warning (pre-alerta, trip = False).
+   • DANGER_INTRUSION  : Ocupación confirmada INSIDE / EXIT_PENDING en P_danger (disparo inmediato t = 0.0s, trip = True).
+   • MUTED             : Silenciamiento temporal autorizado bajo condiciones controladas.
+   • FAULT             : Fallo de sensor, geometría o excepción de pipeline (fail-safe trip = True).
+   • LOCKOUT           : Enclavamiento por desaparición de intruso dentro de P_danger (requiere SpatialFSM.reset(), trip = True).
 ```
 
 - #strong[Histéresis Espacial:]
@@ -874,17 +885,35 @@ Factor de incertidumbre de medición métrica y jitter del sensor.
 
 #divider()
 
-== Anclaje Espacial Mediante Keypoints de Tobillos <anclaje-espacial-mediante-keypoints-de-tobillos>
+== Anclaje Espacial Mediante Keypoints de Tobillos y Degradación Jerárquica (AnchorSource) <anclaje-espacial-mediante-keypoints-de-tobillos-y-degradación-jerárquica-anchorsource>
 Para anular las falsas alarmas provocadas por la inclinación cenital o
 angular de la cámara enfrente de operadores cuyos torsos o cabezas
-intersectan la zona pero cuyos pies están fuera: \*
-#strong[Prohibición:] Se prohíbe el centroide de la caja delimitadora
-(#emph[bounding box centroid]) o la base central de la caja 2D. \*
-#strong[Punto de Contacto Real:]
+intersectan la zona pero cuyos pies están fuera: \* #strong[Prohibición
+del Centroide 2D:] Se prohíbe el centroide geométrico de la caja
+delimitadora (#emph[bounding box centroid]), dado que proyecta el torso
+a mitad de altura fuera del plano $Z_w = 0$. \* #strong[Jerarquía de
+Anclaje en Suelo (`extract_ground_anchor`, `conf_threshold = 0.5` por
+defecto):] 1. #strong[Tier 1 (`ANKLES_DUAL`):] Si ambos tobillos superan
+el umbral ($upright("conf") gt.eq 0.5$) y la altura aparente de la caja
+cumple $h_(upright("bbox")) gt.eq h_min$ (`min_ankle_bbox_height`), se
+proyecta el punto medio con factor de confianza $times 1.0$:
 $ p_(upright("ground")) = frac(p_(upright("ankle-left")) + p_(upright("ankle-right")), 2) $
-Si un tobillo está ocluido ($c o n f < 0.3$), se adopta el tobillo
-visible con mayor confianza. Si ambos están ocluidos temporalmente, el
-Filtro Kalman 2D extrapola la trayectoria en espacio métrico.
+\2. #strong[Tier 2 (`ANKLE_SINGLE`):] Si un solo tobillo es visible
+($upright("conf") gt.eq 0.5$) y $h_(upright("bbox")) gt.eq h_min$, se
+adopta dicho tobillo con penalización de confianza $times 0.75$ e
+inflación de covarianza $R$ ($2.0 times$). 3. #strong[Tier 3
+(`BBOX_BOTTOM`):] Si ambos tobillos están ocluidos
+($upright("conf") < 0.5$) o el operario se encuentra en campo lejano
+($h_(upright("bbox")) < h_min$, ej. `min_ankle_bbox_height = 120.0`), se
+utiliza el borde inferior central de la caja
+$\(frac(x_1 + x_2, 2)\,y_2\)$ con penalización de confianza $times 0.40$
+e inflación de covarianza de medición $R$ de $5.0 times$
+(#link(<adr-007>)[ADR-007],
+#link(<adr-013>)[ADR-013]).
+\4. #strong[Tier 4 (`TRACKER_PREDICTED`):] Ante pérdida total de
+detección (#emph[dropout]), el Filtro Kalman 2D extrapola la trayectoria
+cinemática en modo `COASTING` hasta $k lt.eq 5$ cuadros con decaimiento
+de confianza $0.85^k$.
 
 #divider()
 
@@ -1141,6 +1170,79 @@ es servir como material de estudio y referencia para comprender el
     #strong[exista al menos un subconjunto de 4 puntos en posición
     general] (ningún triplete colineal en ese cuadrilátero).
 
+=== P18: ¿Por qué una persona lejana (o en el borde superior derecho bajo el cartel MAMUL DEPO) no llega siquiera al fallback de Bounding Box, y por qué la Inferencia Foveada por ROI supera al re-entrenamiento de YOLO? <p18-por-qué-una-persona-lejana-o-en-el-borde-superior-derecho-bajo-el-cartel-mamul-depo-no-llega-siquiera-al-fallback-de-bounding-box-y-por-qué-la-inferencia-foveada-por-roi-supera-al-re-entrenamiento-de-yolo>
+- #strong[Contexto de Percepción y Modos de Fallo:] En cámaras CCTV
+  industriales con perspectiva profunda (como
+  `mendeley_walkway_violation` y `mendeley_industrial`), los operarios
+  que caminan al fondo del corredor (bajo el cartel #emph[MAMUL DEPO], a
+  distancias métricas $Y_w in\[15.0\,22.0\]upright(" m")$) miden apenas
+  $h_(upright("orig")) approx 55 upright("–") 68 upright(" px")$ de
+  altura vertical en el cuadro nativo de $1920 times 1080$.
+- #strong[Fundamento Técnico (El Cuello de Botella Óptico y la Jerarquía
+  de Filtrado):]
+  + #strong[Por qué `BBOX_BOTTOM` jamás fue alcanzado:]
+    - Al reescalar el fotograma completo mediante `letterbox_image` de
+      $1920 times 1080 arrow.r 640 times 360$
+      ($upright("scale") = 0.3333$), la silueta humana se comprime a
+      apenas
+      $h_(upright("tensor")) approx 18 upright("–") 22 upright(" px")$.
+    - En las cabezas de detección profunda de YOLO11-Pose ($P_4$ con
+      stride 16 y $P_5$ con stride 32), una figura de
+      $18 upright("–") 22 upright(" px")$ abarca menos de $1.5$ celdas
+      de características, colapsando el gradiente convolucional de
+      activación.
+    - En `SafetyPipeline.parse_detections`, el vector de confianza de
+      clase persona `raw[4, :]` arroja una media de apenas $0.149$ (solo
+      $4$ de cada $35$ cuadros superan $0.30$).
+    - Debido a que el filtro de confianza
+      `scores >= self.conf_threshold` ($0.40$) se ejecuta #strong[antes]
+      de procesar keypoints o activar `extract_ground_anchor`, las
+      propuestas huérfanas se descartan en la etapa de detección 2D. La
+      degradación jerárquica a `BBOX_BOTTOM` nunca llega a invocarse
+      porque el detector ni siquiera reconoció la presencia de un
+      candidato.
+  + #strong[Por qué el Fine-Tuning de YOLO es la Herramienta Errónea:]
+    - El problema no radica en los pesos neuronales ni en una falta de
+      representación semántica (la red conoce perfectamente la anatomía
+      humana), sino en el #strong[Teorema de Muestreo de Nyquist-Shannon
+      espacial]: no se puede reconstruir una estructura que ha sido
+      submuestreada por debajo del período de muestreo de la grilla
+      convolucional.
+    - #strong[Prueba Empírica Irrefutable:] Utilizando
+      #strong[exactamente el mismo archivo de pesos
+      `models/yolo11n-pose.onnx` sin modificar un solo parámetro], la
+      detección en el pasillo lejano pasó de un paupérrimo
+      #strong[$11.4 %$ ($4\/35$ cuadros, conf media $0.149$) a un
+      perfecto $100.0 %$ ($35\/35$ cuadros, conf media
+      $0.669 upright("–") 0.728$)] cuando se le suministró el recorte
+      foveado. El re-entrenamiento no puede crear fotones ni píxeles
+      donde el stride convolucional los destruye.
+  + #strong[La Solución Arquitectónica (Inferencia Foveada Declarativa +
+    Anclaje Adaptativo):]
+    - Se define de forma declarativa en el YAML de la cámara un recorte
+      óptico focalizado en el punto de fuga
+      (`zones.far_field_roi: [1320, 200, 1700, 580]`).
+    - El parche foveado de $380 times 380 upright(" px")$ se reescala a
+      $640 times 640$ ($upright("scale") approx 1.684 times$),
+      obteniendo una #strong[ganancia efectiva de resolución espacial de
+      $5.05 times$] ($1.684\/0.3333$).
+    - Las coordenadas locales se reproyectan sumando $\(r x_1\,r y_1\)$
+      y se fusionan mediante `deduplicate_detections`
+      ($upright("IoU") gt.eq 0.45$ o distancia
+      $lt.eq 18 upright(" px")$).
+    - Para operarios distantes
+      ($h_(upright("bbox")) < 120 upright(" px")$), el sistema conmuta
+      automáticamente a `BBOX_BOTTOM`, eliminando el jitter de keypoints
+      microscópicos.
+    - Tras la proyección homográfica $H$, se aplica deduplicación
+      métrica en el plano del suelo
+      ($d_(upright("metric")) < 0.55 upright(" m")$), integrando el
+      rastro en el tracker de Kalman con una latencia total de
+      #strong[$T_1 approx 30.5 upright(" ms")$], preservando íntegro el
+      presupuesto de seguridad de ISO 13855 ($50 upright(" ms")$).
+- #strong[Detalle Completo:] Ver
+  #link(<adr-013>)[ADR-013].
+
 #divider()
 
 == Dinámica Temporal & Seguridad Funcional <dinámica-temporal-seguridad-funcional>
@@ -1260,9 +1362,9 @@ es servir como material de estudio y referencia para comprender el
   - #strong[La Postura Técnica Correcta:] Presentar el proyecto como: \>
     #emph[Experimental vision-based intrusion monitoring system inspired
     by industrial safety-zone concepts and ISO 13855 safety-distance
-    reasoning. Not a safety-rated protective device.] \#\#\# P14: ¿Qué
-    significa exactamente que el sistema reporte que una persona está a
-    0.93 m del peligro?
+    reasoning. Not a safety-rated protective device.]
+
+=== P14: ¿Qué significa exactamente que el sistema reporte que una persona está a 0.93 m del peligro? <p14-qué-significa-exactamente-que-el-sistema-reporte-que-una-persona-está-a-0.93-m-del-peligro>
 - #strong[Fundamento de Metrología y Visión Computacional:]
   - #strong[La Falsa Precisión:] En una auditoría técnica o revisión de
     arquitectura, responder "la homografía calculó que está a
@@ -1282,9 +1384,9 @@ es servir como material de estudio y referencia para comprender el
       del piso respecto a la hipótesis plana ideal $Z_w = 0$.
     + #emph[Homography numerical error:] Amplificación de perturbaciones
       gobernada por el número de condición matricial $kappa\(H\)$,
-      especialmente en zonas con ángulos rasantes. \#\#\# P15: ¿Qué hace
-      el sistema cuando los pies del trabajador no se ven (oclusión por
-      maquinaria) y qué es la propagación de confianza?
+      especialmente en zonas con ángulos rasantes.
+
+=== P15: ¿Qué hace el sistema cuando los pies del trabajador no se ven (oclusión por maquinaria) y qué es la propagación de confianza? <p15-qué-hace-el-sistema-cuando-los-pies-del-trabajador-no-se-ven-oclusión-por-maquinaria-y-qué-es-la-propagación-de-confianza>
 - #strong[Fundamento de Arquitectura y Modos de Fallo:]
   - #strong[El Escenario Crítico:] En una planta industrial, es habitual
     que una máquina baja o un pallet oculte los pies de un trabajador
@@ -1313,22 +1415,46 @@ es servir como material de estudio y referencia para comprender el
       Propagation):] Asociar una etiqueta de origen y confianza a cada
       coordenada.
 
-  - #strong[La Política Implementada (Graceful Degradation):] El
-    pipeline combina B, D y E en una jerarquía tipada:
+  - #strong[La Política Implementada (Graceful Degradation --- 4
+    Niveles):] El pipeline combina B, C, D y E en una jerarquía tipada
+    (`AnchorSource` en `src/core/kalman_filter.py` y
+    `extract_ground_anchor` en `src/pipeline/safety_pipeline.py`):
 
-    + Si ambos tobillos son válidos $arrow.r$ `ANKLES_DUAL` (confianza
-      máxima).
-    + Si uno es válido $arrow.r$ `ANKLE_SINGLE` (confianza media).
-    + Si ambos están ocluidos $arrow.r$ Kalman retiene el track en modo
-      `COASTING` extrapolando velocidad (`TRACKER_PREDICTED`).
-    + Si la oclusión persiste $> 160 upright(" ms")$, se evalúa fallback
-      a bbox o eliminación segura.
+    + #strong[Tier 1 (`ANKLES_DUAL`):] Ambos tobillos visibles
+      ($upright("conf") gt.eq 0.5$) y escala suficiente
+      ($h_(upright("bbox")) gt.eq h_min$ / `min_ankle_bbox_height`)
+      $arrow.r$ punto medio de tobillos, confianza
+      $= frac(c_15 + c_16, 2) times 1.0$ ($R$ nominal $1.0 times$).
+    + #strong[Tier 2 (`ANKLE_SINGLE`):] Un solo tobillo visible
+      ($upright("conf") gt.eq 0.5$) y $h_(upright("bbox")) gt.eq h_min$
+      $arrow.r$ coordenada del tobillo visible, confianza penalizada por
+      $times 0.75$ ($R$ escalada $2.0 times$).
+    + #strong[Tier 3 (`BBOX_BOTTOM`):] Ambos tobillos ocluidos
+      ($upright("conf") < 0.5$) o escala de campo lejano
+      ($h_(upright("bbox")) < h_min$, ej. `min_ankle_bbox_height=120.0`)
+      $arrow.r$ base central del bounding box
+      $\(frac(x_1 + x_2, 2)\,y_2\)$, confianza penalizada por
+      $times 0.40$ e inflación de covarianza de medición $R$ en
+      $5.0 times$.
+    + #strong[Tier 4 (`TRACKER_PREDICTED`):] Pérdida completa de
+      detección (dropout) $arrow.r$ el `MultiTargetKalmanTracker`
+      retiene el track en modo `COASTING` extrapolando velocidad
+      $\[dot(X)\,dot(Y)\]$ hasta $k lt.eq 5$ cuadros
+      ($approx 167 upright(" ms")$) con decaimiento exponencial de
+      confianza $0.85^k$.
 
   - #strong[Propagación de Confianza:] El sistema no emite simples
-    tuplas `(x, y)`\; conceptualmente emite:
+    tuplas `(x, y)`\; emite instancias inmutables de `PositionEstimate`:
 
     ```python
-    PositionEstimate(xy_m, confidence, source="ankles | bbox | predicted", status="OBSERVED | PREDICTED | STALE", missed_count=k)
+    PositionEstimate(
+        xy_m=(x_m, y_m),
+        confidence=conf,
+        source=AnchorSource.ANKLES_DUAL | AnchorSource.ANKLE_SINGLE | AnchorSource.BBOX_BOTTOM | AnchorSource.TRACKER_PREDICTED,
+        status=ObservationStatus.OBSERVED | ObservationStatus.PREDICTED | ObservationStatus.STALE,
+        covariance=cov_2x2,
+        missed_count=k,
+    )
     ```
 
     Esto permite que la FSM distinga entre una alarma con certeza física
@@ -1624,7 +1750,7 @@ Para garantizar la legibilidad y evitar desbordamientos, las tablas de benchmark
 
 = Compendio Completo de Architecture Decision Records (ADRs) <cap-adrs>
 
-En este capítulo se recopilan de manera íntegra y exhaustiva las doce decisiones arquitectónicas (ADRs) que gobiernan la totalidad del sistema *Edge Safety Guard*. Cada documento define el contexto, las opciones evaluadas, los trade-offs matemáticos/computacionales, la decisión adoptada y sus consecuencias directas en seguridad industrial.
+En este capítulo se recopilan de manera íntegra y exhaustiva las trece decisiones arquitectónicas (ADRs) que gobiernan la totalidad del sistema *Edge Safety Guard*. Cada documento define el contexto, las opciones evaluadas, los trade-offs matemáticos/computacionales, la decisión adoptada y sus consecuencias directas en seguridad industrial.
 
 #align(center)[
   #table(
@@ -1637,14 +1763,15 @@ En este capítulo se recopilan de manera íntegra y exhaustiva las doce decision
     [#strong[002]], [#link(<adr-002>)[ADR-002]], [Mapeo planar DLT 3x3 determinista (Zw = 0) vs estimación monocular 3D.],
     [#strong[003]], [#link(<adr-003>)[ADR-003]], [Inferencia desacoplada de PyTorch vía ONNX Runtime (CoreML / INT8).],
     [#strong[004]], [#link(<adr-004>)[ADR-004]], [Schmitt trigger espacial con banda de 200 mm contra el chattering.],
-    [#strong[005]], [#link(<adr-005>)[ADR-005]], [Validación preventiva de colinealidad y estabilidad numérica κ(H) < 10^6.],
+    [#strong[005]], [#link(<adr-005>)[ADR-005]], [Validación preventiva de colinealidad y estabilidad numérica κ(H) < 10^12.],
     [#strong[006]], [#link(<adr-006>)[ADR-006]], [Geometrías preparadas GEOS (C) y bypass dinámico por velocidad vn ≥ 1.6 m/s.],
     [#strong[007]], [#link(<adr-007>)[ADR-007]], [Manejo jerárquico de oclusiones: tobillos duales → individual → bbox.],
     [#strong[008]], [#link(<adr-008>)[ADR-008]], [Epistemología Kalman (OBSERVED/PREDICTED) y bloqueo de desescalada ciega.],
     [#strong[009]], [#link(<adr-009>)[ADR-009]], [Statecharts ortogonales concurrentes: separación ocupación vs dwell time.],
     [#strong[010]], [#link(<adr-010>)[ADR-010]], [Profiling de doble horizonte: hardware (T_system) vs evento físico (T_event).],
     [#strong[011]], [#link(<adr-011>)[ADR-011]], [MOT Bayesiano: Gating Mahalanobis χ² ≤ 9.21, Húngaro y Spatial Birth NMS.],
-    [#strong[012]], [#link(<adr-012>)[ADR-012]], [Composición fotorrealista pinhole de identidad única para testing formal.]
+    [#strong[012]], [#link(<adr-012>)[ADR-012]], [Composición fotorrealista pinhole de identidad única para testing formal.],
+    [#strong[013]], [#link(<adr-013>)[ADR-013]], [Inferencia foveada de doble pasada (far_field_roi) y delimitación de pasillo seguro (Yw ≤ 6 m).]
   )
 ]
 
@@ -2183,49 +2310,74 @@ Se adopta una #strong[política de degradación escalonada (Graceful
 Degradation Hierarchy)] combinada con el concepto de #strong[Propagación
 de Confianza (Confidence Propagation)]:
 
-==== Jerarquía de Degradación Escalonada <jerarquía-de-degradación-escalonada>
-+ #strong[Nivel 1 (Fidelidad Plena - Dual Ankles):] Si ambos tobillos
-  tienen $c o n f gt.eq 0.5$, se proyecta su punto medio. Fuente:
-  `SourceType.ANKLES_DUAL`.
-+ #strong[Nivel 2 (Fidelidad Monocular - Single Ankle):] Si un solo
-  tobillo supera el umbral, se utiliza dicho tobillo como anclaje
-  físico. Fuente: `SourceType.ANKLE_SINGLE`.
-+ #strong[Nivel 3 (Filtro Cinemático - Coasting):] Si ambos tobillos
-  caen por debajo del umbral, el pipeline no proyecta un punto nuevo a
-  homografía; en su lugar, el #strong[MultiTargetKalmanTracker] retiene
-  el track en modo `COASTING` extrapolando su velocidad
-  $\[dot(X)\,dot(Y)\]$ durante un máximo de $N_(upright("missed")) = 5$
-  fotogramas. Fuente: `SourceType.TRACKER_PREDICTED`.
-+ #strong[Nivel 4 (Pérdida Crítica / Fallback):] Si la oclusión persiste
-  más de $N_(upright("missed"))$ fotogramas o se trata de una pista no
-  confirmada, se habilita el fallback a `BBOX_BOTTOM_CENTER` con
-  penalización de confianza, o se marca el track como `DELETED`.
+==== Jerarquía de Degradación Escalonada (AnchorSource) <jerarquía-de-degradación-escalonada-anchorsource>
++ #strong[Nivel 1 (Fidelidad Plena - `AnchorSource.ANKLES_DUAL`):] Si
+  ambos tobillos tienen
+  $upright("conf") gt.eq upright("conf_threshold")$ (por defecto $0.5$)
+  y la altura de la caja satisface
+  $h_(upright("bbox")) gt.eq upright("min_ankle_bbox_height")$, se
+  proyecta su punto medio con confianza media
+  $frac(c_15 + c_16, 2) times 1.0$ y covarianza de medición nominal
+  ($1.0 times R$). Fuente: `AnchorSource.ANKLES_DUAL`.
++ #strong[Nivel 2 (Fidelidad Monocular - `AnchorSource.ANKLE_SINGLE`):]
+  Si un solo tobillo supera el umbral ($upright("conf") gt.eq 0.5$) y
+  $h_(upright("bbox")) gt.eq upright("min_ankle_bbox_height")$, se
+  utiliza dicho tobillo como anclaje físico con confianza penalizada por
+  $times 0.75$ e inflación de covarianza $2.0 times R$. Fuente:
+  `AnchorSource.ANKLE_SINGLE`.
++ #strong[Nivel 3 (Proxy de Caja / Escala Lejana -
+  `AnchorSource.BBOX_BOTTOM`):] Si ambos tobillos están ocluidos
+  ($upright("conf") < 0.5$) o la caja se encuentra en campo lejano
+  ($h_(upright("bbox")) < upright("min_ankle_bbox_height")$),
+  `extract_ground_anchor` proyecta el punto inferior central del
+  bounding box $\(frac(x_1 + x_2, 2)\,y_2\)$ con confianza penalizada
+  por $times 0.40$ e inflación de covarianza de medición $5.0 times R$
+  en la actualización de Joseph del filtro de Kalman. Fuente:
+  `AnchorSource.BBOX_BOTTOM`.
++ #strong[Nivel 4 (Filtro Cinemático / Coasting -
+  `AnchorSource.TRACKER_PREDICTED`):] Si ocurre un #emph[dropout]
+  completo de detección (sin propuesta válida en el cuadro), el
+  #strong[MultiTargetKalmanTracker] retiene el track en modo `COASTING`
+  extrapolando su estado cinemático $\[X\,Y\,v_x\,v_y\]^T$ durante un
+  máximo de $N_(upright("missed")) lt.eq 5$ fotogramas con decaimiento
+  exponencial de confianza $0.85^k$. Fuente:
+  `AnchorSource.TRACKER_PREDICTED`.
 
 ==== Contrato de Estimación Métrica (Confidence Propagation) <contrato-de-estimación-métrica-confidence-propagation>
-Las coordenadas en metros no deben tratarse como valores escalares
-idénticos. Representan el tipo conceptual:
+Las coordenadas en metros e incertidumbres cinemáticas se encapsulan en
+`PositionEstimate` y `Track` (`src/core/kalman_filter.py`):
 
 ```python
+class AnchorSource(str, Enum):
+    ANKLES_DUAL = "ANKLES_DUAL"              # Tier 1: Midpoint of left and right ankles (conf * 1.0, 1.0x R)
+    ANKLE_SINGLE = "ANKLE_SINGLE"            # Tier 2: Single detected ankle keypoint (conf * 0.75, 2.0x R)
+    BBOX_BOTTOM = "BBOX_BOTTOM"              # Tier 3: Bounding box bottom-center proxy (score * 0.40, 5.0x R)
+    TRACKER_PREDICTED = "TRACKER_PREDICTED"  # Tier 4: Dead reckoning via Kalman coasting (conf * 0.85^k)
+
+
 @dataclass(frozen=True)
 class PositionEstimate:
-    xy_m: Tuple[float, float]
-    confidence: float
-    source: str  # "ankles_dual" | "ankle_single" | "bbox_bottom" | "tracker_predicted"
-    covariance: Optional[np.ndarray] = None
+    xy_m: Tuple[float, float]                        # (x_m, y_m) on floor plane Zw = 0
+    confidence: float                                # Normalized reliability in [0.0, 1.0]
+    source: AnchorSource                             # "ANKLES_DUAL" | "ANKLE_SINGLE" | "BBOX_BOTTOM" | "TRACKER_PREDICTED"
+    status: ObservationStatus = ObservationStatus.OBSERVED  # "OBSERVED" | "PREDICTED" | "STALE"
+    covariance: Optional[np.ndarray] = None          # 2x2 spatial position error covariance matrix (m^2)
+    missed_count: int = 0                            # Consecutive missed frames k (Track also exposes x_m, y_m, vx_m_s, vy_m_s)
 ```
 
 === Consecuencias <consecuencias>
 - #strong[Sin Puntos Ciegos:] Si un operario camina detrás de un pallet
   o máquina, el sistema mantiene el seguimiento métrico y el cálculo de
-  intrusión mediante #emph[coasting] sin perder su historial de
+  intrusión mediante fallback `BBOX_BOTTOM` ($5.0 times R$) o
+  #emph[coasting] `TRACKER_PREDICTED` sin perder su historial de
   permanencia (#emph[dwell time]).
 - #strong[Semántica Clara en Auditoría:] Un evento de alarma disparado
-  con `source="ankles_dual"` tiene alta certeza geométrica; uno
-  disparado con `source="tracker_predicted"` indica que el trabajador ya
-  venía en trayectoria de incursión antes de ocluirse.
+  con `source="ANKLES_DUAL"` tiene alta certeza geométrica; uno
+  disparado con `source="BBOX_BOTTOM"` o `source="TRACKER_PREDICTED"`
+  conserva trazabilidad explícita de su nivel de degradación.
 - #strong[Fail-Safe Temporal:] La ventana de coasting está acotada
-  ($160 upright(" ms")$); no se extrapola indefinidamente para evitar
-  derivas cinemáticas.
+  ($167 upright(" ms")$, $k lt.eq 5$); no se extrapola indefinidamente
+  para evitar derivas cinemáticas.
 #v(1.5em)
 
 #line(length: 100%, stroke: 1pt + rgb("#0284C7"))
@@ -2894,6 +3046,325 @@ cualquier colisión textual.
   `data/assets/sprites/worker/` (\~200 KB).
 #v(1.5em)
 
+#line(length: 100%, stroke: 1pt + rgb("#0284C7"))
+== ADR-013: Inferencia Foveada por Región de Interés en Campo Lejano (Foveated Far-Field ROI) y Delimitación Física de Senda Peatonal <adr-013>
+=== Estado <estado>
+#strong[Aceptado] (2026-10-21)
+
+#divider()
+
+=== Contexto y Problema <contexto-y-problema>
+Durante la ingestión y auditoría empírica de los metrajes industriales
+de circuito cerrado (CCTV) a $1920 times 1080$ ($1080 upright("p")$) en
+nave de conformado metálico (`mendeley_walkway_violation` y
+`mendeley_industrial`), se identificaron dos desafíos físicos y
+perceptuales de primer orden que comprometían la cobertura de seguridad
+funcional:
+
+==== a) Delimitación Física de la Planta y Senda Peatonal Segura (Opción B) <a-delimitación-física-de-la-planta-y-senda-peatonal-segura-opción-b>
+La planta industrial cuenta con una senda peatonal pintada de verde en
+el lateral derecho de la nave, delimitada longitudinalmente por una
+franja demarcatoria amarilla. El objetivo de seguridad operacional
+radica en garantizar que los operarios permanezcan dentro de dicha
+franja verde y disparar alertas inmediatas si ingresan a la calzada
+vehicular gris de autoelevadores o al box de la prensa hidráulica de
+estampado (lado izquierdo).
+
+Mediante calibración DLT (#emph[Direct Linear Transformation]) de 4
+puntos coplanares de referencia: \* Punto 1 (inferior-izquierdo):
+$upright("px ")\(100\,1020\)arrow.l.r\[0.0\,0.0\]upright(" m")$ \* Punto
+2 (inferior-derecho):
+$upright("px ")\(1684\,1020\)arrow.l.r\[10.0\,0.0\]upright(" m")$ \*
+Punto 3 (superior-derecho):
+$upright("px ")\(1515\,420\)arrow.l.r\[10.0\,15.0\]upright(" m")$ \*
+Punto 4 (superior-izquierdo):
+$upright("px ")\(320\,420\)arrow.l.r\[0.0\,15.0\]upright(" m")$
+
+Se obtuvo un residuo algebraico perfecto con error
+$upright("RMSE") = 4.08 times 10^(- 15) upright(" m")$. La línea
+amarilla divisoria quedó exactamente fijada en la coordenada métrica
+$X_w = 10.0 upright(" m")$. En consecuencia, todo el semiespacio
+izquierdo delimitado por $X_w in\[0.0\,9.8\]upright(" m")$ y extendido
+longitudinalmente hasta $Y_w in\[0.0\,23.0\]upright(" m")$ constituye la
+zona de peligro (`danger_polygon`), mientras que el corredor seguro
+peatonal corresponde a $X_w gt.eq 10.0 upright(" m")$.
+
+==== b) Submuestreo Espacial en el Punto de Fuga: Por qué el Fallback BBOX_BOTTOM no Rescató a los Operarios Lejanos <b-submuestreo-espacial-en-el-punto-de-fuga-por-qué-el-fallback-bbox_bottom-no-rescató-a-los-operarios-lejanos>
+En `mendeley_industrial`, el operario identificado como `ID 5` camina a
+lo largo del pasillo lejano durante los cuadros 1 al 52 antes de
+ingresar al campo medio de la nave. De igual forma, en
+`mendeley_walkway_violation`, dos operarios se desplazan en el corredor
+superior derecho ($upright("px ")\[1430 . .1535\,310 . .430\]$ bajo el
+cartel #emph[MAMUL DEPO]), a una profundidad métrica
+$Y_w in\[15.0\,22.0\]upright(" m")$.
+
+A esa distancia de fuga en perspectiva monocular: 1. #strong[Submuestreo
+Severo:] Los operarios miden en la imagen original de
+$1080 upright("p")$ apenas
+$h_(upright("orig")) approx 55 upright("–") 68 upright(" px")$ de
+altura. 2. #strong[Degradación por Letterbox Convencional:] Al alimentar
+la red YOLO a resolución estándar de $640 times 640$, el
+preprocesamiento `letterbox_image` escala el cuadro de
+$1920 times 1080 arrow.r 640 times 360$ mediante un factor:
+$ upright("scale") = 640 / 1920 approx 0.3333 $ Esto comprime la silueta
+vertical de los trabajadores a apenas
+$h_(upright("tensor")) approx 18 upright("–") 22 upright(" px")$ dentro
+del tensor de inferencia. 3. #strong[Límite de Stride y Teorema de
+Nyquist:] En la arquitectura convolucional de YOLO11-Pose, las cabezas
+de detección operan con strides de submuestreo de $P_3$ (stride 8),
+$P_4$ (stride 16) y $P_5$ (stride 32). Un cuerpo humano de
+$18 upright("–") 22 upright(" px")$ abarca menos de $1.5$ celdas de
+características en $P_4$ y colapsa por debajo de una sola celda en
+$P_5$. 4. #strong[Filtro Previo en `parse_detections`:] La probabilidad
+de clase de persona en el canal `raw[4, :]` cae drásticamente a un
+promedio de $upright("score") = 0.149$, superando el umbral de detección
+($gt.eq 0.30$) únicamente en $4$ de cada $35$ cuadros muestreados
+($11.4 %$). Como la condición `scores >= self.conf_threshold` ($0.40$)
+actúa como filtro de primer orden en `SafetyPipeline.parse_detections`,
+las propuestas son descartadas #strong[antes] de invocar a
+`extract_ground_anchor`. Por tanto, el mecanismo de fallback de Nivel 3
+(`BBOX_BOTTOM`) jamás llega a ejecutarse para esos cuadros.
+
+#divider()
+
+=== Opciones Consideradas (Análisis de Trade-offs) <opciones-consideradas-análisis-de-trade-offs>
+==== Opción 1: Inferencia Foveada Declarativa por ROI en Campo Lejano (far_field_roi) + Deduplicación 2D y Métrica (Elegida) <opción-1-inferencia-foveada-declarativa-por-roi-en-campo-lejano-far_field_roi-deduplicación-2d-y-métrica-elegida>
+Declarar de manera opcional en la configuración YAML del flujo de cámara
+(`zones.far_field_roi: [1320, 200, 1700, 580]`,
+`far_field_conf_threshold: 0.30`) una ventana foveada centrada en el
+punto de fuga óptico del pasillo.
+
+- #strong[Ventaja Óptica / Teorema de Muestreo:] El recorte nativo de
+  $380 times 380 upright(" px")$ se redimensiona a $640 times 640$
+  ($upright("scale") = 640\/380 approx 1.684 times$ frente al
+  $0.333 times$ del fotograma completo), logrando una #strong[ganancia
+  de resolución espacial efectiva de $5.05 times$] sobre los operarios
+  distantes. Sus siluetas pasan de $20 upright(" px")$ a más de
+  $100 upright(" px")$ en el tensor, activando sólidamente las cabezas
+  convolucionales.
+- #strong[Reproyección y Deduplicación Híbrida:] Las detecciones del
+  recorte se reproyectan sumando el offset local $\(r x_1\,r y_1\)$ y se
+  fusionan con la pasada general mediante deduplicación espacial 2D
+  (`IoU >= 0.45` o distancia entre anclajes $lt.eq 18 upright(" px")$) y
+  deduplicación métrica en el plano del suelo
+  ($d_(upright("metric")) < 0.55 upright(" m")$).
+- #strong[Costo Computacional Acotado:] Infiere dos pasadas a
+  $640 times 640$ solo cuando la cámara define un corredor lejano,
+  manteniendo la latencia total del pipeline en
+  $T_1 approx 30.5 upright(" ms")$ (ampliamente dentro de la cota de
+  $50 upright(" ms")$ de ISO 13855).
+
+==== Opción 2: Escalado Global del Fotograma Completo ($960 upright("p")$ / $1280 upright("p")$) o Tiling Exhaustivo (SAHI) <opción-2-escalado-global-del-fotograma-completo-960textp-1280textp-o-tiling-exhaustivo-sahi>
+Elevar la resolución de entrada de toda la imagen a $1280 times 1280$ o
+dividir el cuadro completo en 4--6 parches superpuestos mediante Sliced
+Aided Hyper Inference (SAHI).
+
+- #emph[Pros:] No requiere declarar coordenadas de ROI específicas por
+  cámara.
+- #emph[Contras:] La complejidad computacional escala de forma
+  cuadrática $cal(O)\(W dot.op H\)$. Se desperdicia más del $85 %$ del
+  cómputo adicional procesando el techo de chapa, paredes ciegas y el
+  primer plano (donde los operarios ya miden $350 upright(" px")$). En
+  hardware edge, $1280 upright("p")$ o SAHI eleva la latencia de
+  inferencia por encima de $65 upright("–") 90 upright(" ms")$, violando
+  el presupuesto temporal de seguridad de ISO 13855
+  ($T_1 lt.eq 50 upright(" ms")$).
+
+==== Opción 3: Re-entrenamiento o Fine-Tuning de YOLO11-Pose <opción-3-re-entrenamiento-o-fine-tuning-de-yolo11-pose>
+Re-entrenar la red neuronal con imágenes anotadas de la planta
+industrial.
+
+- #emph[Pros:] Podría ajustar pesos a reflectancias específicas o
+  iluminación de vapor de sodio.
+- #emph[Contras:] Innecesario y conceptualmente erróneo para este modo
+  de falla. La evaluación experimental demostró que #strong[el modelo
+  estándar `models/yolo11n-pose.onnx` sin alterar un solo peso] pasó de
+  un paupérrimo #strong[$11.4 %$ ($4\/35$ cuadros, conf media $0.149$)
+  al $100.0 %$ ($35\/35$ cuadros, conf media
+  $0.669 upright("–") 0.728$)] cuando recibió el recorte foveado. El
+  cuello de botella es estrictamente físico-óptico (muestreo espacial de
+  Shannon-Nyquist sobre la resolución del sensor), no una deficiencia en
+  la capacidad representacional del grafo neuronal.
+
+==== Opción 4: Bajar el Umbral Global --conf-threshold a $0.12$ <opción-4-bajar-el-umbral-global---conf-threshold-a-0.12>
+Reducir indiscriminadamente el umbral de aceptación del detector en el
+fotograma completo.
+
+- #emph[Contras:] Dispara falsos positivos catastróficos. A umbrales
+  inferiores a $0.25$, las cabezas de pose confunden las columnas
+  estructurales de hierro, las guías de prensas y las barandas metálicas
+  de contraste lineal con articulaciones humanas, saturando el tracker
+  con pistas fantasma.
+
+#divider()
+
+=== Decisión Tomada y Arquitectura de Fusión <decisión-tomada-y-arquitectura-de-fusión>
+Se adopta la #strong[Inferencia Foveada Declarativa por Región de
+Interés (Dual-Pass Foveated ROI)] acoplada con deduplicación piramidal
+2D y métrica:
+
++ #strong[Configuración Declarativa en YAML:] Si el perfil de cámara
+  incluye `zones.far_field_roi: [rx1, ry1, rx2, ry2]`, el pipeline
+  activa la rama foveada. De lo contrario, opera en modo estándar de
+  pasada única ($T_1 approx 16 upright(" ms")$).
++ #strong[Ejecución Sincrónica en Dos Fases:]
+  - #strong[Rama General:] Fotograma completo $1920 times 1080 arrow.r$
+    `letterbox` a $640 times 640 arrow.r$ inferencia base.
+  - #strong[Rama Foveada:] Recorte $380 times 380$ centrado en el punto
+    de fuga $arrow.r$ `letterbox` a $640 times 640 arrow.r$ inferencia
+    con umbral sensible (`far_field_conf_threshold = 0.30`).
++ #strong[Reproyección y Compensación de Offset:] Cada detección local
+  del recorte $\(x\,y\)$ se proyecta al espacio global sumando
+  $\(r x_1\,r y_1\)$.
++ #strong[Deduplicación 2D y Degradación Adaptativa:]
+  - Las propuestas coincidentes entre el fotograma general y el recorte
+    foveado se fusionan priorizando la mayor confianza mediante
+    `deduplicate_detections` ($upright("IoU") gt.eq 0.45$ o
+    $parallel p_(upright("anchor")\,1) - p_(upright("anchor")\,2) parallel lt.eq 18 upright(" px")$).
+  - Para siluetas con $h_(upright("bbox")) < 120 upright(" px")$,
+    `extract_ground_anchor` degrada limpiamente a `BBOX_BOTTOM`
+    (Tier-3), evitando el ruido de keypoints lejanos.
++ #strong[Proyección Homográfica y Deduplicación Métrica:] Proyección
+  vía matriz $H$ a coordenadas de mundo $\(X_w\,Y_w\)$, seguida de
+  supresión métrica por radio interpersonal
+  ($d_(upright("metric")) < 0.55 upright(" m")$) antes de ingresar a la
+  asociación de Mahalanobis en `MultiTargetKalmanTracker`.
+
+```mermaid
+flowchart TD
+    subgraph S1["1. Captura & Enrutamiento de Imagen"]
+        raw["Fotograma CCTV 1080p (1920x1080)"]
+        crop["Recorte Foveado ROI (380x380 px) [1320, 200, 1700, 580]"]
+        raw --> crop
+    end
+
+    subgraph S2["2. Inferencia Dual ONNX (640x640)"]
+        lb_full["Letterbox Global (1920x1080 -> 640x640)"]
+        lb_roi["Letterbox Foveado (380x380 -> 640x640) [Ganancia 5.05x]"]
+        onnx_full["YOLO11n-Pose (Pasada Completa)"]
+        onnx_roi["YOLO11n-Pose (Pasada Foveada)"]
+        
+        raw --> lb_full --> onnx_full
+        crop --> lb_roi --> onnx_roi
+    end
+
+    subgraph S3["3. Fusión & Deduplicación Espacial 2D"]
+        parse_full["Detecciones Generales (conf >= 0.40)"]
+        parse_roi["Detecciones Lejanas (conf >= 0.30) + Offset (rx1, ry1)"]
+        dedup_2d["Deduplicación 2D (IoU >= 0.45 o Dist <= 18 px)"]
+        scale_anchor["Anclaje Adaptativo: h < 120 px -> BBOX_BOTTOM, h >= 120 px -> ANKLES_DUAL"]
+        
+        onnx_full --> parse_full
+        onnx_roi --> parse_roi
+        parse_full --> dedup_2d
+        parse_roi --> dedup_2d
+        dedup_2d --> scale_anchor
+    end
+
+    subgraph S4["4. Proyección Homográfica & MOT"]
+        homography["Homografía Planar H (DLT Calibrada Xw <= 10.0m)"]
+        dedup_metric["Deduplicación Métrica (Separación < 0.55 m)"]
+        kalman["MultiTargetKalmanTracker (Gating Mahalanobis chi^2 <= 9.21)"]
+        fsm["SpatialFSM (danger_polygon hasta Yw = 23.0m)"]
+
+        scale_anchor --> homography --> dedup_metric --> kalman --> fsm
+    end
+```
+
+#divider()
+
+=== Evidencia Empírica y Resultados <evidencia-empírica-y-resultados>
+Se evaluó el comportamiento comparativo entre el modo estándar (pasada
+única a $640 upright("p")$) y el modo foveado declarativo
+(`far_field_roi: [1320, 200, 1700, 580]`) sobre los dos metrajes reales
+de la planta:
+
+#figure(
+  align(center)[#table(
+    columns: (25%, 25%, 25%, 25%),
+    align: (left,left,left,left,),
+    table.header([Métrica / Dataset], [Fotograma Completo 640p
+      Único], [Dual-Pass Foveado Declarativo (ADR-013)], [Impacto /
+      Validación],),
+    table.hline(),
+    [#strong[Recall en Pasillo Lejano
+    ($Y_w in\[15\,22\]upright(" m")$)]], [$11.4 %$ ($4\/35$
+    cuadros)], [#strong[$100.0 %$ ($35\/35$
+    cuadros)]], [#strong[Eliminación total del punto ciego de fuga]],
+    [#strong[Confianza Media de Detección Lejana]], [$0.149$ (descartado
+    por conf)], [#strong[$0.669 upright("–") 0.728$]], [Activación
+    robusta sin alterar pesos],
+    [#strong[`mendeley_walkway_violation` (348 f)]], [Detectado
+    tardíamente ($Y < 12 upright("m")$)], [#strong[Rastreado desde
+    Cuadro 3] ($\[10.04\,15.12\]upright(" m")$)], [7 tracks únicos, 35
+    cuadros `DANGER`, 182 `LOCKOUT`],
+    [#strong[`mendeley_walkway_violation` Latencia
+    $T_1$]], [$16.32 upright(" ms")$
+    ($p_95 = 21.52 upright(" ms")$)], [#strong[$30.58 upright(" ms")$
+    ($p_95 = 33.53 upright(" ms")$)]], [#strong[$lt.eq 50 upright(" ms")$
+    (Presupuesto ISO 13855 cumplido)]],
+    [#strong[`mendeley_industrial` (173 f)]], [Pista inicia tarde en
+    cuadro 53], [#strong[Rastreado desde Cuadro 3]
+    ($\[10.04\,15.23\]upright(" m") arrow.r 12.58 upright(" m")$)], [10
+    tracks únicos, 65 `WARNING`, 73 `DANGER`],
+    [#strong[`mendeley_industrial` Latencia
+    $T_1$]], [$15.35 upright(" ms")$
+    ($p_95 = 18.26 upright(" ms")$)], [#strong[$30.38 upright(" ms")$
+    ($p_95 = 33.81 upright(" ms")$)]], [#strong[$lt.eq 50 upright(" ms")$
+    (Presupuesto ISO 13855 cumplido)]],
+  )]
+  , kind: table
+  )
+
+#block[
+]
+Figura 1: Validación en mendeley\_walkway\_violation (Frame 145). La ROI
+foveada (recuadro cian) detecta a los dos operarios bajo el cartel MAMUL
+DEPO ($Y_w approx 16.2 upright("–") 17.1 upright(" m")$) con anclaje
+BBOX\_BOTTOM y activa SAFETY TRIP: INSIDE al cruzar el borde amarillo
+($X_w < 10.0 upright(" m")$).
+#block[
+]
+Figura 2: Validación en mendeley\_industrial (Frame 125). Operación
+simultánea de anclaje anatómico de alta precisión (ANKLES\_DUAL,
+operario cercano a $Y_w approx 3.1 upright(" m")$) y anclaje por ROI
+foveada (BBOX\_BOTTOM, operario lejano a
+$Y_w approx 12.6 upright(" m")$) en $T_1 = 32.2 upright(" ms")$.
+
+#divider()
+
+=== Consecuencias y Límites de Cobertura Operacional (ODD) <consecuencias-y-límites-de-cobertura-operacional-odd>
+==== Ventajas: <ventajas>
++ #strong[Definición Clara del Dominio de Diseño Operacional (ODD):]
+  Resuelve de manera formal la delimitación del alcance del sistema.
+  Cada cámara declara explícitamente en su YAML tanto el polígono
+  métrico de cobertura longitudinal (`danger_polygon` hasta
+  $Y_w = 23.0 upright(" m")$) como la ventana óptica foveada
+  (`far_field_roi`).
++ #strong[Generalidad Absoluta de `SafetyPipeline`:] La arquitectura del
+  pipeline permanece $100 %$ genérica e independiente del caso de uso:
+  secuencias sin campo lejano operan a pasada única
+  ($T_1 approx 16 upright(" ms")$), mientras que secuencias de nave
+  larga con perspectiva pronunciada activan la inferencia foveada sin
+  bifurcaciones condicionales duras.
++ #strong[Robustez ante Oclusiones y Perspectiva:] La combinación de
+  deduplicación espacial 2D, fallback por escala `BBOX_BOTTOM` y
+  deduplicación métrica a $0.55 upright(" m")$ elimina cualquier
+  propuesta redundante o inestabilidad angular.
+
+==== Compromisos y Restricciones: <compromisos-y-restricciones>
++ #strong[Sobrecarga Temporal:] La inferencia dual incrementa la
+  latencia media $T_1$ de $approx 16 upright(" ms")$ a
+  $approx 30.5 upright(" ms")$ ($+ 14.5 upright(" ms")$). No obstante,
+  el percentil $p_95 = 33.53 upright(" ms")$ se mantiene con holgura por
+  debajo del límite estricto de $50 upright(" ms")$ estipulado por ISO
+  13855 para dispositivos basados en visión.
++ #strong[Requisito de Configuración en Planta:] Exige definir una vez
+  durante el comisionamiento de la cámara las coordenadas del punto de
+  fuga del corredor $\[r x_1\,r y_1\,r x_2\,r y_2\]$ en el archivo YAML
+  de configuración.
+#v(1.5em)
+
 #pagebreak()
 
 = Implementación de Referencia y Snippets de Código Crítico <cap-codigo>
@@ -2903,91 +3374,142 @@ En esta sección se exponen las implementaciones reales de los componentes nucle
 == Cálculo de Condicionamiento y Proyección Vectorizada (src/core/homography.py)
 
 #callout(title: "Contrato Numérico y Estabilidad", color: rgb("#0284C7"))[
-  El número de condición $kappa(bold(H)) = sigma_"max" / sigma_"min"$ se calcula mediante descomposición en valores singulares (SVD). Si $kappa(bold(H)) >= 10^6$, la calibración se rechaza inmediatamente para evitar errores de amplificación milimétrica en el cálculo de distancias al suelo.
+  El número de condición $kappa(bold(H)) = sigma_"max" / sigma_"min"$ se calcula mediante descomposición en valores singulares (`np.linalg.cond(H)`). Si $kappa(bold(H)) > 10^12$, la calibración se rechaza inmediatamente para evitar errores de amplificación milimétrica en el cálculo de distancias al suelo.
 ]
 
 ```python
 # src/core/homography.py
-def calculate_condition_number(H: np.ndarray) -> float:
-    """Calcula el número de condición κ(H) = σ_max / σ_min vía SVD."""
-    s = np.linalg.svd(H, compute_uv=False)
-    if s[-1] < 1e-12:
-        return float("inf")
-    return float(s[0] / s[-1])
+def compute_homography(self, method: Optional[int] = None) -> np.ndarray:
+    H, _ = cv2.findHomography(self._image_points, self._world_points, method=method_flag)
+    H = H.astype(np.float64)
+    if abs(H[2, 2]) > 1e-12:
+        H = H / H[2, 2]
+    det = float(np.linalg.det(H))
+    if abs(det) < 1e-10:
+        raise ValueError(f"Homography matrix is singular or near-singular: det(H) = {det:.2e} < 1e-10.")
+    H_inv = np.linalg.inv(H)
+    cond = float(np.linalg.cond(H))
+    if cond > 1e12 or np.isnan(cond) or np.isinf(cond):
+        raise ValueError(f"Homography matrix is ill-conditioned: condition number kappa(H) = {cond:.2e} > 1e12.")
+    self._H, self._H_inv, self._is_calibrated = H, H_inv, True
+    return self._H
 
-def project_to_world(self, points: np.ndarray) -> np.ndarray:
-    """Proyección vectorizada en NumPy de píxeles (u, v) a suelo métrico (X, Y) con Zw = 0."""
-    pts = np.atleast_2d(points)
-    homogeneous = np.column_stack([pts, np.ones(len(pts))])
-    transformed = (self.H @ homogeneous.T).T
-    # Normalización proyectiva por coordenada homogénea W
-    return transformed[:, :2] / transformed[:, 2:3]
+def project_batch(self, points: np.ndarray, to_world: bool = True) -> np.ndarray:
+    pts = np.asarray(points, dtype=np.float64)
+    M = self._H if to_world else self._H_inv
+    pts_h = np.column_stack([pts, np.ones(len(pts), dtype=np.float64)])
+    proj = pts_h @ M.T
+    w = proj[:, 2:3]
+    if np.any(np.abs(w) < 1e-7):
+        raise ValueError("One or more points lie on or near the horizon line (|W| < 1e-7).")
+    return proj[:, :2] / w
 ```
 
-== Jerarquía de Anclaje de Tobillos (src/pipeline/safety_pipeline.py)
+== Jerarquía de Anclaje y Orquestación Foveada (src/pipeline/safety_pipeline.py)
 
-#callout(title: "Degradación Controlada", color: rgb("#16A34A"))[
-  Cumple con el *ADR-007*. La estimación anatómica prioriza la bisección de tobillos con confianza superior a 0.30. Si ambos están ocluidos, conmuta a la base de la caja delimitadora con penalización de confianza a 0.20 para informar al filtro de Kalman.
+#callout(title: "Degradación Controlada y Pasada Foveada", color: rgb("#16A34A"))[
+  Cumple con *ADR-007* y *ADR-013*. `extract_ground_anchor` prioriza el punto medio de ambos tobillos (`conf_threshold = 0.5`, confianza media `(left_conf + right_conf) / 2.0`), degrada a tobillo único (`conf * 0.75`) o a base de bounding box (`det_score * 0.40`, también activado si `bbox_h < min_ankle_bbox_height`). En `SafetyPipeline.process_frame`, la inferencia opcional sobre `far_field_roi` se fusiona mediante `deduplicate_detections`.
 ]
 
 ```python
 # src/pipeline/safety_pipeline.py
-def extract_ground_anchor(kpts: np.ndarray, bbox: Tuple[float, ...]) -> Tuple[Tuple[float, float], AnchorSource, float]:
-    left_conf, right_conf = float(kpts[15, 2]), float(kpts[16, 2])
-    # Nivel 1: Ambos tobillos visibles con confianza plena
-    if left_conf >= 0.30 and right_conf >= 0.30:
-        midpoint = ((float(kpts[15, 0]) + float(kpts[16, 0])) / 2.0,
-                    (float(kpts[15, 1]) + float(kpts[16, 1])) / 2.0)
-        return midpoint, AnchorSource.ANKLES_DUAL, min(left_conf, right_conf)
-    # Nivel 2: Tobillo individual (el otro tapado por maquinaria)
-    if left_conf >= 0.30:
-        return (float(kpts[15, 0]), float(kpts[15, 1])), AnchorSource.ANKLE_SINGLE, left_conf
-    if right_conf >= 0.30:
-        return (float(kpts[16, 0]), float(kpts[16, 1])), AnchorSource.ANKLE_SINGLE, right_conf
-    # Nivel 3: Base de Bounding Box (degradado)
-    bbox_bottom = ((bbox[0] + bbox[2]) / 2.0, bbox[3])
-    return bbox_bottom, AnchorSource.BBOX_BOTTOM, 0.20
+def extract_ground_anchor(
+    keypoints: np.ndarray,
+    bbox: Optional[Tuple[float, float, float, float]] = None,
+    conf_threshold: float = 0.5,
+    scale: float = 1.0,
+    pad_x: float = 0.0,
+    pad_y: float = 0.0,
+    allow_bbox_fallback: bool = True,
+    det_score: float = 1.0,
+    min_ankle_bbox_height: float = 0.0,
+) -> Optional[Tuple[Tuple[float, float], AnchorSource, float]]:
+    if bbox is not None and min_ankle_bbox_height > 0.0:
+        if abs(float(bbox[3]) - float(bbox[1])) < min_ankle_bbox_height:
+            if allow_bbox_fallback:
+                anchor_pt = unletterbox_point((bbox[0] + bbox[2]) / 2.0, bbox[3], scale, pad_x, pad_y)
+                return anchor_pt, AnchorSource.BBOX_BOTTOM, float(det_score) * 0.40
+            return None
+    left_ankle, right_ankle = keypoints[15], keypoints[16]
+    left_valid = float(left_ankle[2]) >= conf_threshold
+    right_valid = float(right_ankle[2]) >= conf_threshold
+    if left_valid and right_valid:
+        mid_x = (float(left_ankle[0]) + float(right_ankle[0])) / 2.0
+        mid_y = (float(left_ankle[1]) + float(right_ankle[1])) / 2.0
+        avg_conf = (float(left_ankle[2]) + float(right_ankle[2])) / 2.0
+        return unletterbox_point(mid_x, mid_y, scale, pad_x, pad_y), AnchorSource.ANKLES_DUAL, float(avg_conf)
+    elif left_valid:
+        return unletterbox_point(float(left_ankle[0]), float(left_ankle[1]), scale, pad_x, pad_y), AnchorSource.ANKLE_SINGLE, float(left_ankle[2]) * 0.75
+    elif right_valid:
+        return unletterbox_point(float(right_ankle[0]), float(right_ankle[1]), scale, pad_x, pad_y), AnchorSource.ANKLE_SINGLE, float(right_ankle[2]) * 0.75
+    elif allow_bbox_fallback and bbox is not None:
+        anchor_pt = unletterbox_point((bbox[0] + bbox[2]) / 2.0, bbox[3], scale, pad_x, pad_y)
+        return anchor_pt, AnchorSource.BBOX_BOTTOM, float(det_score) * 0.40
+    return None
+
+# Dentro de SafetyPipeline.process_frame(self, frame, capture_timestamp=None):
+model_out = self.engine.infer(tensor)
+roi_model_out = self.engine.infer(roi_tensor) if roi_bounds is not None else None
+detections = self.parse_detections(model_out, scale, pad_x, pad_y, orig_w, orig_h)
+if roi_bounds is not None and roi_model_out is not None:
+    roi_detections = self.parse_detections(
+        roi_model_out, roi_scale, roi_pad_x, roi_pad_y, rx2 - rx1, ry2 - ry1,
+        conf_threshold_override=self.far_field_conf_threshold, offset_xy=(float(rx1), float(ry1)),
+    )
+    detections = deduplicate_detections(detections + roi_detections)
+world_positions = self.homography.project_batch(anchors_arr, to_world=True)
+active_tracks = self.tracker.update(position_estimates)
+safety_output = self.fsm.update(tracks_for_fsm, timestamp=t_start)
 ```
 
-== Filtro de Kalman Cinemático y Gating de Mahalanobis (src/core/kalman_filter.py)
+== Filtro de Kalman Cinemático con Actualización de Joseph (src/core/kalman_filter.py)
 
 ```python
 # src/core/kalman_filter.py
-def mahalanobis_distance(self, z: np.ndarray) -> float:
-    """Calcula d_M^2 contra la covarianza de innovación S = H P^- H^T + R."""
-    y = z - (self._H @ self._x)
-    S = self._H @ self._P @ self._H.T + self._R
-    return float(y.T @ np.linalg.inv(S) @ y)
-
-def update(self, measurement: Tuple[float, float], confidence: float, source: AnchorSource) -> PositionEstimate:
+def mahalanobis_distance(self, measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]], R: Optional[np.ndarray] = None) -> float:
     z = np.asarray(measurement, dtype=np.float64)
-    y = z - (self._H @ self._x)
-    S = self._H @ self._P @ self._H.T + self._R
-    K = self._P @ self._H.T @ np.linalg.inv(S)
-    self._x = self._x + K @ y
-    self._P = (self._I - K @ self._H) @ self._P
-    return PositionEstimate(xy_m=(float(self._x[0]), float(self._x[1])), confidence=confidence, source=source)
+    y0, y1 = z[0] - self._x[0], z[1] - self._x[1]
+    r_mat = self._R if R is None else np.asarray(R, dtype=np.float64)
+    s_inv = np.linalg.inv(self._P[:2, :2] + r_mat)
+    d2 = y0 * (s_inv[0, 0] * y0 + s_inv[0, 1] * y1) + y1 * (s_inv[1, 0] * y0 + s_inv[1, 1] * y1)
+    return float(max(0.0, d2))
+
+def update(self, measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]], R: Optional[np.ndarray] = None) -> np.ndarray:
+    z = np.asarray(measurement, dtype=np.float64)
+    r_mat = self._R if R is None else np.asarray(R, dtype=np.float64)
+    y = np.array([z[0] - self._x[0], z[1] - self._x[1]], dtype=np.float64)
+    s_inv = np.linalg.inv(self._P[:2, :2] + r_mat)
+    k_gain = self._P[:, :2] @ s_inv
+    self._x = self._x + k_gain @ y
+    # Forma estabilizada de Joseph: P = (I - K H) P (I - K H)^T + K R K^T
+    a_mat = self._I.copy()
+    a_mat[:, :2] -= k_gain
+    self._P = a_mat @ self._P @ a_mat.T + k_gain @ r_mat @ k_gain.T
+    self._P = 0.5 * (self._P + self._P.T)
+    return self._x.copy()
 ```
 
-== Schmitt Trigger Espacial y Bypass por Velocidad ISO 13855 (src/core/spatial_fsm.py)
+== Schmitt Trigger Espacial Vectorizado y Bypass ISO 13855 (src/core/spatial_fsm.py)
 
 ```python
 # src/core/spatial_fsm.py
-def evaluate_occupant(self, track_id: int, pos: PositionEstimate, velocity: np.ndarray) -> Tuple[bool, OccupancyState]:
-    point = Point(pos.xy_m)
-    in_danger = self._prepared_danger.contains(point)
-    in_release = self._prepared_release.contains(point)
-    
-    # Bypass dinámico de confirmación si la velocidad hacia el peligro es alta (ISO 13855)
-    vn = np.dot(velocity, self._approach_normal)
-    if in_danger and vn >= self.config.iso_k_speed:
-        self._confirm_counts[track_id] = self.config.n_confirm  # Disparo instantáneo en 1 frame
-        
-    # Desescalada asimétrica condicionada estrictamente a fotones OBSERVED (ADR-008)
-    if not in_release and pos.status == ObservationStatus.OBSERVED:
-        self._release_counts[track_id] += 1
+def evaluate_containment(self, tracks: List[Track]) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    positions = np.array([trk.position for trk in tracks], dtype=np.float64)
+    xs, ys = positions[:, 0], positions[:, 1]
+    in_danger = shapely.contains_xy(self._danger_poly, xs, ys)
+    in_release = shapely.contains_xy(self._release_poly, xs, ys)
+    in_warning = shapely.contains_xy(self._warning_poly, xs, ys) if self._warning_poly is not None else (in_release & ~in_danger)
+    return in_danger, in_release, in_warning
+
+# Dentro de SpatialFSM.update(tracks, timestamp):
+if in_danger:
+    record.clean_count = 0
+    if fast_approach or record.fast_approach:
+        record.danger_count = max(record.danger_count + 1, self._config.n_confirm)
     else:
-        self._release_counts[track_id] = 0  # Si está en PREDICTED o STALE, no desescala jamás!
+        record.danger_count += 1
+elif not in_release and obs_status == ObservationStatus.OBSERVED:
+    record.clean_count += 1  # Solo desescala con fotones OBSERVED reales
 ```
 
 #pagebreak()

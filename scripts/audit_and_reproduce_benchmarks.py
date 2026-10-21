@@ -11,6 +11,7 @@ Evaluates:
 Full traceability with Git commit, model SHA256, config SHA256, and hardware/environmental conditions.
 """
 
+import argparse
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import hashlib
@@ -1081,7 +1082,17 @@ def format_all_markdown_tables(
     )
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Master Audit, Reproduction, and Verification Suite for Industrial Vision Edge AI Benchmarks."
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        default=True,
+        help="Run all 5 benchmark reproduction experiments (default: enabled).",
+    )
+    parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     print("=" * 80)
     print("🔬 COMPREHENSIVE BENCHMARK AUDIT & REPRODUCTION SUITE")

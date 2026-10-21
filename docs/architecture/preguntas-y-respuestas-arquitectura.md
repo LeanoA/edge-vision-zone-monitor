@@ -161,15 +161,22 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
     * *C) Fallback a Bbox Bottom-Center:* Usar la base de la caja delimitadora. Mantiene la presencia pero puede tener sesgo si la base de la caja apoya sobre el obstáculo y no sobre el piso.
     * *D) Predicción vía Tracker (Coasting):* El filtro de Kalman proyecta la trayectoria previa usando su modelo cinemático $[\dot{X}, \dot{Y}]$ durante una ventana temporal acotada ($N_{\text{missed}} \le 5$ frames $\approx 160\text{ ms}$).
     * *E) Declarar Incertidumbre Explícita (Confidence Propagation):* Asociar una etiqueta de origen y confianza a cada coordenada.
-  * **La Política Implementada (Graceful Degradation):**
-    El pipeline combina B, D y E en una jerarquía tipada:
-    1. Si ambos tobillos son válidos $\to$ `ANKLES_DUAL` (confianza máxima).
-    2. Si uno es válido $\to$ `ANKLE_SINGLE` (confianza media).
-    3. Si ambos están ocluidos $\to$ Kalman retiene el track en modo `COASTING` extrapolando velocidad (`TRACKER_PREDICTED`).
-    4. Si la oclusión persiste $> 160\text{ ms}$, se evalúa fallback a bbox o eliminación segura.
-  * **Propagación de Confianza:** El sistema no emite simples tuplas `(x, y)`; conceptualmente emite:
+  * **La Política Implementada (Graceful Degradation — 4 Niveles):**
+    El pipeline combina B, C, D y E en una jerarquía tipada (`AnchorSource` en `src/core/kalman_filter.py` y `extract_ground_anchor` en `src/pipeline/safety_pipeline.py`):
+    1. **Tier 1 (`ANKLES_DUAL`):** Ambos tobillos visibles ($\text{conf} \ge 0.5$) y escala suficiente ($h_{\text{bbox}} \ge h_{\min}$ / `min_ankle_bbox_height`) $\to$ punto medio de tobillos, confianza $= \frac{c_{15}+c_{16}}{2} \times 1.0$ ($R$ nominal $1.0\times$).
+    2. **Tier 2 (`ANKLE_SINGLE`):** Un solo tobillo visible ($\text{conf} \ge 0.5$) y $h_{\text{bbox}} \ge h_{\min}$ $\to$ coordenada del tobillo visible, confianza penalizada por $\times 0.75$ ($R$ escalada $2.0\times$).
+    3. **Tier 3 (`BBOX_BOTTOM`):** Ambos tobillos ocluidos ($\text{conf} < 0.5$) o escala de campo lejano ($h_{\text{bbox}} < h_{\min}$, ej. `min_ankle_bbox_height=120.0`) $\to$ base central del bounding box $(\frac{x_1+x_2}{2}, y_2)$, confianza penalizada por $\times 0.40$ e inflación de covarianza de medición $R$ en $5.0\times$.
+    4. **Tier 4 (`TRACKER_PREDICTED`):** Pérdida completa de detección (dropout) $\to$ el `MultiTargetKalmanTracker` retiene el track en modo `COASTING` extrapolando velocidad $[\dot{X}, \dot{Y}]$ hasta $k \le 5$ cuadros ($\approx 167\text{ ms}$) con decaimiento exponencial de confianza $0.85^k$.
+  * **Propagación de Confianza:** El sistema no emite simples tuplas `(x, y)`; emite instancias inmutables de `PositionEstimate`:
     ```python
-    PositionEstimate(xy_m, confidence, source="ankles | bbox | predicted", status="OBSERVED | PREDICTED | STALE", missed_count=k)
+    PositionEstimate(
+        xy_m=(x_m, y_m),
+        confidence=conf,
+        source=AnchorSource.ANKLES_DUAL | AnchorSource.ANKLE_SINGLE | AnchorSource.BBOX_BOTTOM | AnchorSource.TRACKER_PREDICTED,
+        status=ObservationStatus.OBSERVED | ObservationStatus.PREDICTED | ObservationStatus.STALE,
+        covariance=cov_2x2,
+        missed_count=k,
+    )
     ```
     Esto permite que la FSM distinga entre una alarma con certeza física directa y una alarma sostenida por inercia cinemática.
 

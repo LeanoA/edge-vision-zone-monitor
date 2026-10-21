@@ -255,3 +255,22 @@ def test_dual_visualizer_bev_y_axis_orientation_depth_and_velocity(mock_pipeline
     assert u_end == u_start
 
 
+def test_dual_visualizer_bev_renders_track_source_tag(mock_pipeline_components, sample_pipeline_result, monkeypatch):
+    """BEV canvas includes the 4-char AnchorSource tag from Track.source in the pill label."""
+    homography, fsm = mock_pipeline_components
+    visualizer = DualVisualizer(homography, fsm, bev_scale=100.0, bev_size=(600, 600))
+
+    recorded_labels = []
+    orig_draw_pill = visualizer._draw_pill
+
+    def spy_draw_pill(canvas, text, *args, **kwargs):
+        recorded_labels.append(text)
+        return orig_draw_pill(canvas, text, *args, **kwargs)
+
+    monkeypatch.setattr(visualizer, "_draw_pill", spy_draw_pill)
+    visualizer.render_bev(sample_pipeline_result)
+
+    assert any("[ANKL]" in lbl for lbl in recorded_labels)
+
+
+

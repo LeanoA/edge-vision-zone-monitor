@@ -12,7 +12,7 @@ Para evaluar rigurosamente el pipeline de seguridad, las secuencias de video deb
 2. **Plano de Suelo Calibrable ($Z_w \approx 0$):** Baldosas, adoquines, cuadrículas o marcas físicas identificables para calibración DLT (*Direct Linear Transformation*) con 4 o más puntos coplanares.
 3. **Casos de Borde de Seguridad:**
    - **Incursión Limpia y Cruce Rectilíneo:** Velocidad constante sin oclusión para medir latencia de disparo y error de estimación de velocidad $\vec{v} = [\dot{X}, \dot{Y}]$.
-   - **Oclusión Parcial Inferior (Pies Ocultos):** Tránsito detrás de obstáculos bajos (pallets, cajas, barandas) para evaluar el modo *coasting* del filtro de Kalman y la degradación controlada (`ankles_dual` $\to$ `ankle_single` $\to$ `tracker_predicted` $\to$ `bbox_bottom`).
+   - **Oclusión Parcial Inferior (Pies Ocultos):** Tránsito detrás de obstáculos bajos (pallets, cajas, barandas) para evaluar el modo *coasting* del filtro de Kalman y la degradación controlada (`ANKLES_DUAL` $\to$ `ANKLE_SINGLE` $\to$ `BBOX_BOTTOM` $\to$ `TRACKER_PREDICTED`).
    - **Permanencia y Merodeo (*Loitering*):** Sujetos detenidos dentro de la zona protegida para verificar los temporizadores $T_{\text{warn}}$ y $T_{\text{violation}}$.
    - **Intervención en Celda de Maquinaria / Robótica:** Sujetos aproximándose a envolventes de peligro de maquinaria pesada o robots industriales.
 
@@ -66,18 +66,18 @@ Existen dos fuentes de datos para construir los archivos de configuración YAML:
 Generadas determinísticamente mediante [`src/utils/synthetic_generator.py`](../../src/utils/synthetic_generator.py) y evaluables vía `scripts/generate_samples.py`:
 
 * **`sequence_a_clean_incursion` (Incursión Limpia):**
-  * **Geometría:** Celda métrica de $6\text{m} \times 6\text{m}$ con zona de peligro central ($[2.0, 2.0] \times [4.0, 4.0]\text{ m}$).
+  * **Geometría:** Celda métrica de $4\text{m} \times 6\text{m}$ con zona de peligro central ($[1.0, 2.0] \times [3.0, 4.0]\text{ m}$).
   * **Ground Truth:** Trayectoria analítica exacta ($\text{error} = 0.00\text{ mm}$), velocidad constante $v_x = 1.0\text{ m/s}$, $v_y = 0.0\text{ m/s}$.
   * **Propósito:** Medir la latencia de respuesta $T_1$ y verificar la precisión del debounce $N_{\text{confirm}} = 3$.
 
 * **`sequence_b_occlusion_coasting` (Oclusión por Obstáculo Bajo):**
-  * **Geometría:** Barrera baja de $0.5\text{ m}$ de altura que oculta los tobillos durante 15 cuadros ($0.5\text{ s}$).
-  * **Ground Truth:** Estado de degradación de anclaje (`ankles_dual` $\to$ `tracker_predicted` $\to$ `bbox_bottom`).
-  * **Propósito:** Validar el modo *coasting* del filtro de Kalman sin divergencia de covarianza.
+  * **Geometría:** Celda métrica de $4\text{m} \times 6\text{m}$ ($[1.0, 2.0] \times [3.0, 4.0]\text{ m}$) con barrera baja de $0.5\text{ m}$ de altura que oculta los tobillos durante 15 cuadros ($0.5\text{ s}$).
+  * **Ground Truth:** Estado de degradación de anclaje (`ANKLES_DUAL` $\to$ `ANKLE_SINGLE` $\to$ `BBOX_BOTTOM` $\to$ `TRACKER_PREDICTED`).
+  * **Propósito:** Validar la degradación escalonada y el modo *coasting* del filtro de Kalman sin divergencia de covarianza.
 
 * **`sequence_c_dwell_loitering` (Permanencia en Zona):**
-  * **Geometría:** Operario ingresa a la zona de peligro y permanece detenido durante $7.0\text{ s}$.
-  * **Ground Truth:** Temporizador de *dwell time* continuo ($T_{\text{warn}} = 3.0\text{s}$, $T_{\text{violation}} = 6.0\text{s}$).
+  * **Geometría:** Celda métrica de $4\text{m} \times 6\text{m}$ ($[1.0, 2.0] \times [3.0, 4.0]\text{ m}$); el operario ingresa a la zona de peligro y permanece detenido durante $6.0\text{ s}$.
+  * **Ground Truth:** Temporizador de *dwell time* continuo ($T_{\text{warn}} = 2.0\text{s}$, $T_{\text{violation}} = 5.0\text{s}$).
   * **Propósito:** Validar la FSM de permanencia temporal desacoplada ([ADR-009](../decisions/adr-009-decoupled-spatial-dwell-statecharts.md)).
 
 ---

@@ -395,3 +395,18 @@ class TestSpatialFSM:
         assert out2.trip is True
         assert out2.event_latency_ms is not None
         assert out2.event_latency_ms == pytest.approx(0.0, abs=0.1)
+
+    def test_get_track_dwell_time_exposes_per_track_dwell(self, standard_zone_config):
+        """Verify SpatialFSM.get_track_dwell_time returns accumulated dwell time per track ID."""
+        fsm = SpatialFSM(standard_zone_config)
+        t1 = make_track(1, (2.0, 2.0))
+        t2 = make_track(2, (0.2, 0.2))
+
+        for step in range(3):
+            fsm.update([t1, t2], timestamp=float(step) * 0.5)
+
+        fsm.update([t1, t2], timestamp=2.5)
+        assert fsm.get_track_dwell_time(1) == pytest.approx(1.5, abs=1e-3)
+        assert fsm.get_track_dwell_time(2) == 0.0
+        assert fsm.get_track_dwell_time(999) == 0.0
+
