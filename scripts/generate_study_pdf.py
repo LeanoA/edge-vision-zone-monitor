@@ -193,21 +193,21 @@ def render_page_1(pdf, lang: str = "es"):
     if lang == "es":
         layers = [
             ("1. PERCEPCIÓN", "#1E293B", "#38BDF8", [
-                "Frame RTSP / V4L2",
+                "RTSP / V4L2 + ROI Foveada",
                 "YOLO11-Pose (CoreML)",
                 "Keypoints Tobillos (15, 16)",
-                "Anchor Fallback Degradado"
+                "Deduplicación 2D & Fallback"
             ]),
             ("2. GEOMETRÍA", "#0C4A6E", "#38BDF8", [
                 "DLT Homografía H (3x3)",
-                "Verificación κ(H) < 10^6",
+                "Verificación κ(H) < 10^12",
                 "Mapeo Inverso (Zw = 0)",
-                "Métrico (X, Y) [metros]"
+                "Métrico (X, Y) + Deduplicación"
             ]),
             ("3. ESTIMACIÓN", "#14532D", "#4ADE80", [
-                "Kalman Filter 2D (CV)",
-                "Gating Mahalanobis χ²_2",
-                "Asignación Húngara O(N³)",
+                "Kalman Predict 2D (CV)",
+                "Gating Mahalanobis χ²_2 ≤ 9.21",
+                "Asignación Húngara + Joseph",
                 "OBSERVED / PREDICTED"
             ]),
             ("4. DECISIÓN", "#7C2D12", "#FDBA74", [
@@ -220,21 +220,21 @@ def render_page_1(pdf, lang: str = "es"):
     else:
         layers = [
             ("1. PERCEPTION", "#1E293B", "#38BDF8", [
-                "RTSP / V4L2 Video Stream",
+                "RTSP / V4L2 + Foveated ROI",
                 "YOLO11-Pose (CoreML)",
                 "Ankle Keypoints (15, 16)",
-                "Graceful Anchor Fallback"
+                "2D Deduplication & Fallback"
             ]),
             ("2. GEOMETRY", "#0C4A6E", "#38BDF8", [
                 "DLT Homography H (3x3)",
-                "Stability Check κ(H) < 10^6",
+                "Stability Check κ(H) < 10^12",
                 "Inverse Mapping (Zw = 0)",
-                "Metric (X, Y) [meters]"
+                "Metric (X, Y) + Deduplication"
             ]),
             ("3. ESTIMATION", "#14532D", "#4ADE80", [
-                "2D Kalman Filter (CV)",
-                "Mahalanobis Gating χ²_2",
-                "Hungarian Matching O(N³)",
+                "Kalman Predict 2D (CV)",
+                "Mahalanobis Gating χ²_2 ≤ 9.21",
+                "Hungarian Match + Joseph",
                 "OBSERVED / PREDICTED"
             ]),
             ("4. DECISION", "#7C2D12", "#FDBA74", [
@@ -383,7 +383,7 @@ def render_page_2(pdf, lang: str = "es"):
     ax.add_patch(cond_box)
     stab_label = r"\mathrm{(L\acute{\imath}mite\ de\ Estabilidad)}" if lang == "es" else r"\mathrm{(Stability\ Limit)}"
     cond_math = (
-        r"$\kappa(\mathbf{H}) = \frac{\sigma_{\max}(\mathbf{H})}{\sigma_{\min}(\mathbf{H})} < 10^6 \quad " + stab_label +
+        r"$\kappa(\mathbf{H}) = \frac{\sigma_{\max}(\mathbf{H})}{\sigma_{\min}(\mathbf{H})} < 10^{12} \quad " + stab_label +
         r"\qquad \mathrm{RMSE} = \sqrt{\frac{1}{N} \sum_{i=1}^N \|\mathbf{X}_i - \mathbf{H}^{-1}\mathbf{x}_i\|^2} \leq 0.05\mathrm{ m}$"
     )
     ax.text(0.5, 0.470, cond_math, fontsize=8.2, color="#0F172A", ha="center", va="center", zorder=4)
@@ -392,37 +392,37 @@ def render_page_2(pdf, lang: str = "es"):
     draw_card(ax, 0.04, 0.065, 0.92, 0.355, c3_title)
 
     if lang == "es":
-        code_homography = """# src/core/homography.py (Implementación de Producción)
-def calculate_condition_number(H: np.ndarray) -> float:
-    # Calcula el número de condición κ(H) = σ_max / σ_min vía SVD
-    s = np.linalg.svd(H, compute_uv=False)
-    if s[-1] < 1e-12:
-        return float("inf")
-    return float(s[0] / s[-1])
+        code_homography = """# src/core/homography.py (HomographyManager: Calibración y Proyección)
+def compute_homography(self, method: Optional[int] = None) -> np.ndarray:
+    H, _ = cv2.findHomography(self._image_points, self._world_points, method=method_flag)
+    H = H.astype(np.float64) / (H[2, 2] if abs(H[2, 2]) > 1e-12 else 1.0)
+    cond = float(np.linalg.cond(H))
+    if cond > 1e12 or np.isnan(cond) or np.isinf(cond):
+        raise ValueError(f"Homography matrix is ill-conditioned: condition number kappa(H) = {cond:.2e} > 1e12.")
+    self._H, self._H_inv, self._is_calibrated = H, np.linalg.inv(H), True
+    return self._H
 
-def project_to_world(self, points: np.ndarray) -> np.ndarray:
-    # Proyección vectorizada de píxeles a metros en suelo (Zw = 0)
-    pts = np.atleast_2d(points)
-    homogeneous = np.column_stack([pts, np.ones(len(pts))])
-    transformed = (self.H @ homogeneous.T).T
-    # Normalización por factor de escala proyectivo W
-    return transformed[:, :2] / transformed[:, 2:3]"""
+def project_batch(self, points: np.ndarray, to_world: bool = True) -> np.ndarray:
+    pts = np.asarray(points, dtype=np.float64)
+    M = self._H if to_world else self._H_inv
+    proj = np.column_stack([pts, np.ones(len(pts), dtype=np.float64)]) @ M.T
+    return proj[:, :2] / proj[:, 2:3]"""
     else:
-        code_homography = """# src/core/homography.py (Production Implementation)
-def calculate_condition_number(H: np.ndarray) -> float:
-    # Compute matrix condition number κ(H) = σ_max / σ_min via SVD
-    s = np.linalg.svd(H, compute_uv=False)
-    if s[-1] < 1e-12:
-        return float("inf")
-    return float(s[0] / s[-1])
+        code_homography = """# src/core/homography.py (HomographyManager: Calibration & Projection)
+def compute_homography(self, method: Optional[int] = None) -> np.ndarray:
+    H, _ = cv2.findHomography(self._image_points, self._world_points, method=method_flag)
+    H = H.astype(np.float64) / (H[2, 2] if abs(H[2, 2]) > 1e-12 else 1.0)
+    cond = float(np.linalg.cond(H))
+    if cond > 1e12 or np.isnan(cond) or np.isinf(cond):
+        raise ValueError(f"Homography matrix is ill-conditioned: condition number kappa(H) = {cond:.2e} > 1e12.")
+    self._H, self._H_inv, self._is_calibrated = H, np.linalg.inv(H), True
+    return self._H
 
-def project_to_world(self, points: np.ndarray) -> np.ndarray:
-    # Vectorized projection from pixels to meters on floor (Zw = 0)
-    pts = np.atleast_2d(points)
-    homogeneous = np.column_stack([pts, np.ones(len(pts))])
-    transformed = (self.H @ homogeneous.T).T
-    # Normalization by projective scale factor W
-    return transformed[:, :2] / transformed[:, 2:3]"""
+def project_batch(self, points: np.ndarray, to_world: bool = True) -> np.ndarray:
+    pts = np.asarray(points, dtype=np.float64)
+    M = self._H if to_world else self._H_inv
+    proj = np.column_stack([pts, np.ones(len(pts), dtype=np.float64)]) @ M.T
+    return proj[:, :2] / proj[:, 2:3]"""
 
     draw_code_box(ax, 0.065, 0.080, 0.87, 0.285, code_homography, "src/core/homography.py")
 
@@ -470,7 +470,7 @@ def render_page_3(pdf, lang: str = "es"):
     if_word = r"\mathrm{si\ }" if lang == "es" else r"\mathrm{if\ }"
     eq_anchor = (
         r"$\mathbf{p}_{\mathrm{ground}} = \frac{\mathbf{p}_{\mathrm{ankle\_left}} + \mathbf{p}_{\mathrm{ankle\_right}}}{2} \quad " +
-        if_word + r"\min(\mathrm{conf}_L, \mathrm{conf}_R) \geq 0.30$"
+        if_word + r"\min(\mathrm{conf}_L, \mathrm{conf}_R) \geq 0.50$"
     )
     ax.text(0.5, 0.720, eq_anchor, fontsize=8.4, color="#0F172A", ha="center", va="center", zorder=4)
 
@@ -531,39 +531,47 @@ def render_page_3(pdf, lang: str = "es"):
     draw_card(ax, 0.04, 0.065, 0.92, 0.300, c3_title)
 
     if lang == "es":
-        code_anchor = """# src/pipeline/safety_pipeline.py (Extracción de Anclaje Robusto)
-def extract_ground_anchor(kpts: np.ndarray, bbox: tuple) -> Tuple[Tuple[float, float], AnchorSource, float]:
-    left_conf, right_conf = float(kpts[15, 2]), float(kpts[16, 2])
-    # Nivel 1: Ambos tobillos detectados con alta confianza
-    if left_conf >= 0.30 and right_conf >= 0.30:
-        midpoint = ((float(kpts[15, 0]) + float(kpts[16, 0])) / 2.0,
-                    (float(kpts[15, 1]) + float(kpts[16, 1])) / 2.0)
-        return midpoint, AnchorSource.ANKLES_DUAL, min(left_conf, right_conf)
-    # Nivel 2: Tobillo individual visible (el otro ocluido)
-    if left_conf >= 0.30:
-        return (float(kpts[15, 0]), float(kpts[15, 1])), AnchorSource.ANKLE_SINGLE, left_conf
-    if right_conf >= 0.30:
-        return (float(kpts[16, 0]), float(kpts[16, 1])), AnchorSource.ANKLE_SINGLE, right_conf
-    # Nivel 3: Fallback degradado a base de bounding box
-    bbox_bottom = ((bbox[0] + bbox[2]) / 2.0, bbox[3])
-    return bbox_bottom, AnchorSource.BBOX_BOTTOM, 0.20"""
+        code_anchor = """# src/pipeline/safety_pipeline.py (Extracción de Anclaje con Degradación de 4 Niveles)
+def extract_ground_anchor(
+    keypoints: np.ndarray, bbox: Optional[Tuple[float, float, float, float]] = None,
+    conf_threshold: float = 0.5, scale: float = 1.0, pad_x: float = 0.0, pad_y: float = 0.0,
+    allow_bbox_fallback: bool = True, det_score: float = 1.0, min_ankle_bbox_height: float = 0.0,
+) -> Optional[Tuple[Tuple[float, float], AnchorSource, float]]:
+    if bbox is not None and min_ankle_bbox_height > 0.0 and abs(bbox[3] - bbox[1]) < min_ankle_bbox_height:
+        return (unletterbox_point((bbox[0] + bbox[2]) / 2.0, bbox[3], scale, pad_x, pad_y),
+                AnchorSource.BBOX_BOTTOM, float(det_score) * 0.40) if allow_bbox_fallback else None
+    left_ankle, right_ankle = keypoints[15], keypoints[16]
+    left_valid, right_valid = float(left_ankle[2]) >= conf_threshold, float(right_ankle[2]) >= conf_threshold
+    if left_valid and right_valid:
+        mid_pt = unletterbox_point((left_ankle[0] + right_ankle[0]) / 2.0, (left_ankle[1] + right_ankle[1]) / 2.0, scale, pad_x, pad_y)
+        return mid_pt, AnchorSource.ANKLES_DUAL, (float(left_ankle[2]) + float(right_ankle[2])) / 2.0
+    if left_valid or right_valid:
+        ank = left_ankle if left_valid else right_ankle
+        return unletterbox_point(float(ank[0]), float(ank[1]), scale, pad_x, pad_y), AnchorSource.ANKLE_SINGLE, float(ank[2]) * 0.75
+    if allow_bbox_fallback and bbox is not None:
+        return unletterbox_point((bbox[0] + bbox[2]) / 2.0, bbox[3], scale, pad_x, pad_y), AnchorSource.BBOX_BOTTOM, float(det_score) * 0.40
+    return None"""
     else:
-        code_anchor = """# src/pipeline/safety_pipeline.py (Robust Ground Anchor Extraction)
-def extract_ground_anchor(kpts: np.ndarray, bbox: tuple) -> Tuple[Tuple[float, float], AnchorSource, float]:
-    left_conf, right_conf = float(kpts[15, 2]), float(kpts[16, 2])
-    # Tier 1: Dual ankles detected with high confidence
-    if left_conf >= 0.30 and right_conf >= 0.30:
-        midpoint = ((float(kpts[15, 0]) + float(kpts[16, 0])) / 2.0,
-                    (float(kpts[15, 1]) + float(kpts[16, 1])) / 2.0)
-        return midpoint, AnchorSource.ANKLES_DUAL, min(left_conf, right_conf)
-    # Tier 2: Single visible ankle (the other occluded)
-    if left_conf >= 0.30:
-        return (float(kpts[15, 0]), float(kpts[15, 1])), AnchorSource.ANKLE_SINGLE, left_conf
-    if right_conf >= 0.30:
-        return (float(kpts[16, 0]), float(kpts[16, 1])), AnchorSource.ANKLE_SINGLE, right_conf
-    # Tier 3: Graceful fallback to bounding box bottom-center
-    bbox_bottom = ((bbox[0] + bbox[2]) / 2.0, bbox[3])
-    return bbox_bottom, AnchorSource.BBOX_BOTTOM, 0.20"""
+        code_anchor = """# src/pipeline/safety_pipeline.py (4-Tier Graceful Ground Anchor Extraction)
+def extract_ground_anchor(
+    keypoints: np.ndarray, bbox: Optional[Tuple[float, float, float, float]] = None,
+    conf_threshold: float = 0.5, scale: float = 1.0, pad_x: float = 0.0, pad_y: float = 0.0,
+    allow_bbox_fallback: bool = True, det_score: float = 1.0, min_ankle_bbox_height: float = 0.0,
+) -> Optional[Tuple[Tuple[float, float], AnchorSource, float]]:
+    if bbox is not None and min_ankle_bbox_height > 0.0 and abs(bbox[3] - bbox[1]) < min_ankle_bbox_height:
+        return (unletterbox_point((bbox[0] + bbox[2]) / 2.0, bbox[3], scale, pad_x, pad_y),
+                AnchorSource.BBOX_BOTTOM, float(det_score) * 0.40) if allow_bbox_fallback else None
+    left_ankle, right_ankle = keypoints[15], keypoints[16]
+    left_valid, right_valid = float(left_ankle[2]) >= conf_threshold, float(right_ankle[2]) >= conf_threshold
+    if left_valid and right_valid:
+        mid_pt = unletterbox_point((left_ankle[0] + right_ankle[0]) / 2.0, (left_ankle[1] + right_ankle[1]) / 2.0, scale, pad_x, pad_y)
+        return mid_pt, AnchorSource.ANKLES_DUAL, (float(left_ankle[2]) + float(right_ankle[2])) / 2.0
+    if left_valid or right_valid:
+        ank = left_ankle if left_valid else right_ankle
+        return unletterbox_point(float(ank[0]), float(ank[1]), scale, pad_x, pad_y), AnchorSource.ANKLE_SINGLE, float(ank[2]) * 0.75
+    if allow_bbox_fallback and bbox is not None:
+        return unletterbox_point((bbox[0] + bbox[2]) / 2.0, bbox[3], scale, pad_x, pad_y), AnchorSource.BBOX_BOTTOM, float(det_score) * 0.40
+    return None"""
 
     draw_code_box(ax, 0.065, 0.080, 0.87, 0.235, code_anchor, "src/pipeline/safety_pipeline.py")
 
@@ -679,37 +687,43 @@ def render_page_4(pdf, lang: str = "es"):
     draw_card(ax, 0.04, 0.065, 0.92, 0.295, c3_title)
 
     if lang == "es":
-        code_kalman = """# src/core/kalman_filter.py (Filtro Cinemático y Gating)
-def mahalanobis_distance(self, z: np.ndarray) -> float:
-    # Calcula la distancia cuadrática d_M² contra la covarianza de innovación S
-    y = z - (self._H @ self._x)
-    S = self._H @ self._P @ self._H.T + self._R
-    return float(y.T @ np.linalg.inv(S) @ y)
-
-def update(self, measurement: Tuple[float, float], confidence: float, source: AnchorSource) -> PositionEstimate:
+        code_kalman = """# src/core/kalman_filter.py (MetricKalmanFilter: Gating y Forma de Joseph)
+def mahalanobis_distance(self, measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]], R: Optional[np.ndarray] = None) -> float:
     z = np.asarray(measurement, dtype=np.float64)
-    y = z - (self._H @ self._x)
-    S = self._H @ self._P @ self._H.T + self._R
-    K = self._P @ self._H.T @ np.linalg.inv(S)
-    self._x = self._x + K @ y
-    self._P = (self._I - K @ self._H) @ self._P  # Corrección de covarianza
-    return PositionEstimate(xy_m=(float(self._x[0]), float(self._x[1])), confidence=confidence, source=source)"""
+    y = z - self._x[:2]
+    r_mat = self._R if R is None else np.asarray(R, dtype=np.float64)
+    s_inv = np.linalg.inv(self._P[:2, :2] + r_mat)
+    return float(max(0.0, y.T @ s_inv @ y))
+
+def update(self, measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]], R: Optional[np.ndarray] = None) -> np.ndarray:
+    z = np.asarray(measurement, dtype=np.float64)
+    r_mat = self._R if R is None else np.asarray(R, dtype=np.float64)
+    y = z - self._x[:2]
+    k_gain = self._P[:, :2] @ np.linalg.inv(self._P[:2, :2] + r_mat)
+    self._x = self._x + k_gain @ y
+    # Forma estabilizada de Joseph: (I - K H) P (I - K H)^T + K R K^T
+    a_mat = self._I.copy(); a_mat[:, :2] -= k_gain
+    self._P = 0.5 * ((a_mat @ self._P @ a_mat.T + k_gain @ r_mat @ k_gain.T) + (a_mat @ self._P @ a_mat.T + k_gain @ r_mat @ k_gain.T).T)
+    return self._x.copy()"""
     else:
-        code_kalman = """# src/core/kalman_filter.py (Kinematic Filter & Gating)
-def mahalanobis_distance(self, z: np.ndarray) -> float:
-    # Compute squared Mahalanobis distance d_M² against innovation covariance S
-    y = z - (self._H @ self._x)
-    S = self._H @ self._P @ self._H.T + self._R
-    return float(y.T @ np.linalg.inv(S) @ y)
-
-def update(self, measurement: Tuple[float, float], confidence: float, source: AnchorSource) -> PositionEstimate:
+        code_kalman = """# src/core/kalman_filter.py (MetricKalmanFilter: Gating & Joseph Form)
+def mahalanobis_distance(self, measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]], R: Optional[np.ndarray] = None) -> float:
     z = np.asarray(measurement, dtype=np.float64)
-    y = z - (self._H @ self._x)
-    S = self._H @ self._P @ self._H.T + self._R
-    K = self._P @ self._H.T @ np.linalg.inv(S)
-    self._x = self._x + K @ y
-    self._P = (self._I - K @ self._H) @ self._P  # Covariance correction
-    return PositionEstimate(xy_m=(float(self._x[0]), float(self._x[1])), confidence=confidence, source=source)"""
+    y = z - self._x[:2]
+    r_mat = self._R if R is None else np.asarray(R, dtype=np.float64)
+    s_inv = np.linalg.inv(self._P[:2, :2] + r_mat)
+    return float(max(0.0, y.T @ s_inv @ y))
+
+def update(self, measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]], R: Optional[np.ndarray] = None) -> np.ndarray:
+    z = np.asarray(measurement, dtype=np.float64)
+    r_mat = self._R if R is None else np.asarray(R, dtype=np.float64)
+    y = z - self._x[:2]
+    k_gain = self._P[:, :2] @ np.linalg.inv(self._P[:2, :2] + r_mat)
+    self._x = self._x + k_gain @ y
+    # Stabilized Joseph covariance update: (I - K H) P (I - K H)^T + K R K^T
+    a_mat = self._I.copy(); a_mat[:, :2] -= k_gain
+    self._P = 0.5 * ((a_mat @ self._P @ a_mat.T + k_gain @ r_mat @ k_gain.T) + (a_mat @ self._P @ a_mat.T + k_gain @ r_mat @ k_gain.T).T)
+    return self._x.copy()"""
 
     draw_code_box(ax, 0.065, 0.080, 0.87, 0.235, code_kalman, "src/core/kalman_filter.py")
 
@@ -807,39 +821,37 @@ def render_page_5(pdf, lang: str = "es"):
     draw_card(ax, 0.04, 0.065, 0.92, 0.285, c3_title)
 
     if lang == "es":
-        code_fsm = """# src/core/spatial_fsm.py (Lógica Schmitt Trigger y Bypass)
-def evaluate_occupant(self, track_id: int, pos: PositionEstimate, velocity: np.ndarray) -> Tuple[bool, OccupancyState]:
-    point = Point(pos.xy_m)
-    in_danger = self._prepared_danger.contains(point)
-    in_release = self._prepared_release.contains(point)
-    
-    # Bypass dinámico ISO 13855: velocidad normal vn >= 1.6 m/s
-    vn = np.dot(velocity, self._approach_normal)
-    if in_danger and vn >= self.config.iso_k_speed:
-        self._confirm_counts[track_id] = self.config.n_confirm  # Bypass inmediato!
-        
-    # Salvaguarda asimétrica de desescalada (ADR-008):
-    if not in_release and pos.status == ObservationStatus.OBSERVED:
-        self._release_counts[track_id] += 1
+        code_fsm = """# src/core/spatial_fsm.py (SpatialFSM: Contención Vectorizada y Actualización)
+def evaluate_containment(self, tracks: List[Track]) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    positions = np.array([trk.position for trk in tracks], dtype=np.float64)
+    xs, ys = positions[:, 0], positions[:, 1]
+    in_danger = shapely.contains_xy(self._danger_poly, xs, ys)
+    in_release = shapely.contains_xy(self._release_poly, xs, ys)
+    in_warning = shapely.contains_xy(self._warning_poly, xs, ys) if self._warning_poly is not None else (in_release & ~in_danger)
+    return in_danger, in_release, in_warning
+
+# Dentro de SpatialFSM.update(self, tracks: List[Track], timestamp: Optional[float] = None):
+if in_danger:
+    record.clean_count = 0
+    record.danger_count = max(record.danger_count + 1, self._config.n_confirm) if (fast_approach or record.fast_approach) else record.danger_count + 1
+elif not in_release and obs_status == ObservationStatus.OBSERVED:
+    record.clean_count += 1  # Solo desescala con fotones OBSERVED reales"""
     else:
-        self._release_counts[track_id] = 0  # Oclusión o PREDICTED bloquea la salida!"""
-    else:
-        code_fsm = """# src/core/spatial_fsm.py (Schmitt Trigger & Bypass Logic)
-def evaluate_occupant(self, track_id: int, pos: PositionEstimate, velocity: np.ndarray) -> Tuple[bool, OccupancyState]:
-    point = Point(pos.xy_m)
-    in_danger = self._prepared_danger.contains(point)
-    in_release = self._prepared_release.contains(point)
-    
-    # ISO 13855 dynamic bypass: normal velocity vn >= 1.6 m/s
-    vn = np.dot(velocity, self._approach_normal)
-    if in_danger and vn >= self.config.iso_k_speed:
-        self._confirm_counts[track_id] = self.config.n_confirm  # Instant bypass!
-        
-    # Asymmetric de-escalation safeguard (ADR-008):
-    if not in_release and pos.status == ObservationStatus.OBSERVED:
-        self._release_counts[track_id] += 1
-    else:
-        self._release_counts[track_id] = 0  # Occlusion or PREDICTED blocks de-escalation!"""
+        code_fsm = """# src/core/spatial_fsm.py (SpatialFSM: Vectorized Containment & Update)
+def evaluate_containment(self, tracks: List[Track]) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    positions = np.array([trk.position for trk in tracks], dtype=np.float64)
+    xs, ys = positions[:, 0], positions[:, 1]
+    in_danger = shapely.contains_xy(self._danger_poly, xs, ys)
+    in_release = shapely.contains_xy(self._release_poly, xs, ys)
+    in_warning = shapely.contains_xy(self._warning_poly, xs, ys) if self._warning_poly is not None else (in_release & ~in_danger)
+    return in_danger, in_release, in_warning
+
+# Inside SpatialFSM.update(self, tracks: List[Track], timestamp: Optional[float] = None):
+if in_danger:
+    record.clean_count = 0
+    record.danger_count = max(record.danger_count + 1, self._config.n_confirm) if (fast_approach or record.fast_approach) else record.danger_count + 1
+elif not in_release and obs_status == ObservationStatus.OBSERVED:
+    record.clean_count += 1  # De-escalation strictly requires fresh OBSERVED photons"""
 
     draw_code_box(ax, 0.065, 0.080, 0.87, 0.225, code_fsm, "src/core/spatial_fsm.py")
 
@@ -954,43 +966,33 @@ def render_page_6(pdf, lang: str = "es"):
     draw_card(ax, 0.04, 0.065, 0.92, 0.285, c3_title)
 
     if lang == "es":
-        code_lat = """# src/pipeline/safety_pipeline.py (Profiling de Doble Horizonte)
-t_start = time.perf_counter()
-t_cap = (time.perf_counter() - t_start) * 1000.0
-
-# Inferencia acelerada en OnnxEngine
-t_inf_0 = time.perf_counter()
-outputs = self.engine.forward(tensor)
-t_inf = (time.perf_counter() - t_inf_0) * 1000.0
-
-# Evaluación cinemática y de lógica espacial
-latencies = StageLatencies(
-    capture_ms=t_cap, preprocess_ms=t_pre, inference_ms=t_inf,
-    keypoint_extract_ms=t_kpt, projection_ms=t_geom,
-    tracking_ms=t_track, fsm_evaluation_ms=t_fsm,
-    total_t1_ms=t_total_frame, total_system_ms=t_system
-)
-# Medición del retardo físico total desde la entrada del operario
-event_latency_ms = (time.perf_counter() - first_cross_timestamp) * 1000.0 if safety.trip else None"""
+        code_lat = """# src/pipeline/safety_pipeline.py (SafetyPipeline.process_frame: Doble Pasada y Profiling)
+model_out = self.engine.infer(tensor)
+roi_model_out = self.engine.infer(roi_tensor) if roi_bounds is not None else None
+detections = self.parse_detections(model_out, scale, pad_x, pad_y, orig_w, orig_h)
+if roi_bounds is not None and roi_model_out is not None:
+    roi_detections = self.parse_detections(
+        roi_model_out, roi_scale, roi_pad_x, roi_pad_y, rx2 - rx1, ry2 - ry1,
+        conf_threshold_override=self.far_field_conf_threshold, offset_xy=(float(rx1), float(ry1)),
+    )
+    detections = deduplicate_detections(detections + roi_detections)
+world_positions = self.homography.project_batch(anchors_arr, to_world=True)
+active_tracks = self.tracker.update(position_estimates)
+safety_output = self.fsm.update(tracks_for_fsm, timestamp=t_start)"""
     else:
-        code_lat = """# src/pipeline/safety_pipeline.py (Dual-Horizon Profiling)
-t_start = time.perf_counter()
-t_cap = (time.perf_counter() - t_start) * 1000.0
-
-# Accelerated inference via OnnxEngine
-t_inf_0 = time.perf_counter()
-outputs = self.engine.forward(tensor)
-t_inf = (time.perf_counter() - t_inf_0) * 1000.0
-
-# Kinematic tracking and spatial logic evaluation
-latencies = StageLatencies(
-    capture_ms=t_cap, preprocess_ms=t_pre, inference_ms=t_inf,
-    keypoint_extract_ms=t_kpt, projection_ms=t_geom,
-    tracking_ms=t_track, fsm_evaluation_ms=t_fsm,
-    total_t1_ms=t_total_frame, total_system_ms=t_system
-)
-# Measure total physical elapsed time since operator entered zone
-event_latency_ms = (time.perf_counter() - first_cross_timestamp) * 1000.0 if safety.trip else None"""
+        code_lat = """# src/pipeline/safety_pipeline.py (SafetyPipeline.process_frame: Dual-Pass & Profiling)
+model_out = self.engine.infer(tensor)
+roi_model_out = self.engine.infer(roi_tensor) if roi_bounds is not None else None
+detections = self.parse_detections(model_out, scale, pad_x, pad_y, orig_w, orig_h)
+if roi_bounds is not None and roi_model_out is not None:
+    roi_detections = self.parse_detections(
+        roi_model_out, roi_scale, roi_pad_x, roi_pad_y, rx2 - rx1, ry2 - ry1,
+        conf_threshold_override=self.far_field_conf_threshold, offset_xy=(float(rx1), float(ry1)),
+    )
+    detections = deduplicate_detections(detections + roi_detections)
+world_positions = self.homography.project_batch(anchors_arr, to_world=True)
+active_tracks = self.tracker.update(position_estimates)
+safety_output = self.fsm.update(tracks_for_fsm, timestamp=t_start)"""
 
     draw_code_box(ax, 0.065, 0.080, 0.87, 0.225, code_lat, "src/pipeline/safety_pipeline.py")
 
@@ -1091,35 +1093,33 @@ def render_page_7(pdf, lang: str = "es"):
     draw_card(ax, 0.04, 0.065, 0.92, 0.285, c3_title)
 
     if lang == "es":
-        code_syn = """# src/utils/synthetic_generator.py (Renderizado Fotorrealista)
-def compute_pinhole_scale(y_world_m: float) -> Tuple[int, int]:
-    # Calcula dimensiones antropométricas en función de la distancia métrica
-    h_px = int(round(480.0 / (1.0 + 0.165 * max(0.0, y_world_m))))
-    w_px = int(round(h_px * (160.0 / 320.0)))  # Relación de aspecto canónica 1:2
-    return max(w_px, 80), max(h_px, 160)
+        code_syn = """# src/utils/synthetic_generator.py (SyntheticVideoGenerator: Escala Pinhole y Sombra)
+def _get_pixel_scale(self, world_y: float) -> float:
+    clamped_y = max(0.0, min(8.0, world_y))
+    return 480.0 / (1.0 + 0.165 * clamped_y)
 
-def render_sprite_with_shadow(frame: np.ndarray, sprite_rgba: np.ndarray, u_coord: int, v_coord: int, scale: float):
-    # Sombra de contacto elíptica Gaussiana en Zw = 0
-    shadow_w, shadow_h = int(scale * 120), int(scale * 36)
-    cv2.ellipse(frame, (u_coord, v_coord), (shadow_w//2, shadow_h//2), 0, 0, 360, (20, 20, 20), -1)
-    # Composición alfa canónica con feathering
-    alpha = cv2.GaussianBlur(sprite_rgba[:, :, 3], (5, 5), 1.0) / 255.0
-    frame[y1:y2, x1:x2] = alpha[:, :, None] * sprite_rgba[:, :, :3] + (1 - alpha[:, :, None]) * frame[y1:y2, x1:x2]"""
+def render_worker_sprite(self, frame: np.ndarray, world_x: float, world_y: float, gait_phase: float = 0.0, is_idle: bool = False) -> None:
+    u_base, v_base = map(int, self.homography.project_to_image(world_x, world_y))
+    target_h = max(60, int(self._get_pixel_scale(world_y)))
+    target_w = max(20, int(target_h * (orig_w / orig_h)))
+    # Sombra de contacto elíptica en Zw = 0 + interpolación Lanczos4 y mezcla alfa RGBA
+    cv2.ellipse(shadow_overlay, (u_base, shadow_y), (int(target_w * 0.55), max(6, int(target_w * 0.20))), 0, 0, 360, (10, 10, 10), -1, cv2.LINE_AA)
+    cv2.addWeighted(shadow_overlay, 0.40, frame, 0.60, 0, frame)
+    roi[:] = (alpha * sprite_crop[:, :, :3] + (1.0 - alpha) * roi).astype(np.uint8)"""
     else:
-        code_syn = """# src/utils/synthetic_generator.py (Photorealistic Rendering)
-def compute_pinhole_scale(y_world_m: float) -> Tuple[int, int]:
-    # Compute anthropometric dimensions from world depth distance
-    h_px = int(round(480.0 / (1.0 + 0.165 * max(0.0, y_world_m))))
-    w_px = int(round(h_px * (160.0 / 320.0)))  # Canonical 1:2 aspect ratio
-    return max(w_px, 80), max(h_px, 160)
+        code_syn = """# src/utils/synthetic_generator.py (SyntheticVideoGenerator: Pinhole Scale & Shadow)
+def _get_pixel_scale(self, world_y: float) -> float:
+    clamped_y = max(0.0, min(8.0, world_y))
+    return 480.0 / (1.0 + 0.165 * clamped_y)
 
-def render_sprite_with_shadow(frame: np.ndarray, sprite_rgba: np.ndarray, u_coord: int, v_coord: int, scale: float):
-    # Gaussian elliptical contact shadow on floor plane (Zw = 0)
-    shadow_w, shadow_h = int(scale * 120), int(scale * 36)
-    cv2.ellipse(frame, (u_coord, v_coord), (shadow_w//2, shadow_h//2), 0, 0, 360, (20, 20, 20), -1)
-    # Canonical alpha compositing with edge feathering
-    alpha = cv2.GaussianBlur(sprite_rgba[:, :, 3], (5, 5), 1.0) / 255.0
-    frame[y1:y2, x1:x2] = alpha[:, :, None] * sprite_rgba[:, :, :3] + (1 - alpha[:, :, None]) * frame[y1:y2, x1:x2]"""
+def render_worker_sprite(self, frame: np.ndarray, world_x: float, world_y: float, gait_phase: float = 0.0, is_idle: bool = False) -> None:
+    u_base, v_base = map(int, self.homography.project_to_image(world_x, world_y))
+    target_h = max(60, int(self._get_pixel_scale(world_y)))
+    target_w = max(20, int(target_h * (orig_w / orig_h)))
+    # Elliptical contact shadow on Zw = 0 + Lanczos4 resize and RGBA alpha compositing
+    cv2.ellipse(shadow_overlay, (u_base, shadow_y), (int(target_w * 0.55), max(6, int(target_w * 0.20))), 0, 0, 360, (10, 10, 10), -1, cv2.LINE_AA)
+    cv2.addWeighted(shadow_overlay, 0.40, frame, 0.60, 0, frame)
+    roi[:] = (alpha * sprite_crop[:, :, :3] + (1.0 - alpha) * roi).astype(np.uint8)"""
 
     draw_code_box(ax, 0.065, 0.080, 0.87, 0.225, code_syn, "src/utils/synthetic_generator.py")
 
@@ -1141,44 +1141,46 @@ def render_page_8(pdf, lang: str = "es"):
     if lang == "es":
         adrs = [
             ("001", "adr-001-yolo-pose-vs-bbox.md", "Keypoints tobillos para anclaje físico inmune a posturas de torso."),
-            ("002", "adr-002-homography-vs-3d.md", "Mapeo planar DLT 3x3 determinista (Zw=0) vs redes 3D pesadas."),
-            ("003", "adr-003-onnx-coreml.md", "Inferencia desacoplada de PyTorch vía ONNX Runtime (ANE/GPU/INT8)."),
-            ("004", "adr-004-spatial-fsm.md", "Schmitt trigger espacial (P_danger vs P_release) contra chattering."),
-            ("005", "adr-005-homography-val.md", "Verificación preventiva colinealidad y estabilidad κ(H) < 10^6."),
-            ("006", "adr-006-prepared-geoms.md", "Micro-optimizaciones GEOS (C) y bypass a vn ≥ 1.6 m/s (ISO 13855)."),
-            ("007", "adr-007-occlusion-handling.md", "Jerarquía degradación: tobillos duales → individual → bbox → Kalman."),
-            ("008", "adr-008-kalman-epistemology.md", "Epistemología (OBSERVED/PREDICTED) y bloqueo desescalada ciega."),
-            ("009", "adr-009-decoupled-statecharts.md", "Statecharts ortogonales: separación formal ocupación y dwell time."),
-            ("010", "adr-010-dual-latency.md", "Doble horizonte temporal: frame (T_system) vs evento físico (T_event)."),
-            ("011", "adr-011-mahalanobis-hungarian.md", "Gating Mahalanobis χ²_2 ≤ 9.21, Húngaro O(N³) y Spatial Birth NMS."),
-            ("012", "adr-012-synthetic-yolo.md", "Composición fotorrealista pinhole de identidad única para benchmarks."),
+            ("002", "adr-002-homography-vs-monocular-3d.md", "Mapeo planar DLT 3x3 determinista (Zw=0) vs redes 3D pesadas."),
+            ("003", "adr-003-onnx-runtime-coreml.md", "Inferencia desacoplada de PyTorch vía ONNX Runtime (ANE/GPU/INT8)."),
+            ("004", "adr-004-spatial-fsm-hysteresis.md", "Schmitt trigger espacial (P_danger vs P_release) contra chattering."),
+            ("005", "adr-005-homography-vectorization-geometric-validation.md", "Verificación preventiva colinealidad y estabilidad κ(H) < 10^12."),
+            ("006", "adr-006-prepared-geometries-dynamic-debounce-bypass.md", "Micro-optimizaciones GEOS (C) y bypass a vn ≥ 1.6 m/s (ISO 13855)."),
+            ("007", "adr-007-occlusion-handling-confidence-propagation.md", "Jerarquía degradación: tobillos duales → individual → bbox → Kalman."),
+            ("008", "adr-008-kalman-epistemology-noise-divergence.md", "Epistemología (OBSERVED/PREDICTED) y bloqueo desescalada ciega."),
+            ("009", "adr-009-decoupled-spatial-dwell-statecharts.md", "Statecharts ortogonales: separación formal ocupación y dwell time."),
+            ("010", "adr-010-dual-latency-profiling-iso13855.md", "Doble horizonte temporal: frame (T_system) vs evento físico (T_event)."),
+            ("011", "adr-011-mahalanobis-hungarian-mot.md", "Gating Mahalanobis χ²_2 ≤ 9.21, Húngaro O(N³) y Spatial Birth NMS."),
+            ("012", "adr-012-synthetic-yolo-video-generation.md", "Composición fotorrealista pinhole de identidad única para benchmarks."),
+            ("013", "adr-013-foveated-far-field-roi-inference.md", "Inferencia foveada (far_field_roi) y delimitación de pasillo (Yw ≤ 6 m)."),
         ]
     else:
         adrs = [
             ("001", "adr-001-yolo-pose-vs-bbox.md", "Ankle keypoints for physical ground anchoring immune to torso posture."),
-            ("002", "adr-002-homography-vs-3d.md", "Deterministic 3x3 DLT planar mapping (Zw=0) vs heavy monocular 3D networks."),
-            ("003", "adr-003-onnx-coreml.md", "Decoupled PyTorch inference via ONNX Runtime (ANE / GPU / INT8 PTQ)."),
-            ("004", "adr-004-spatial-fsm.md", "Spatial Schmitt Trigger (P_danger vs P_release) to eliminate contactor chattering."),
-            ("005", "adr-005-homography-val.md", "Collinearity checks and projective numerical stability validation κ(H) < 10^6."),
-            ("006", "adr-006-prepared-geoms.md", "GEOS (C) micro-optimizations and instant bypass at vn ≥ 1.6 m/s (ISO 13855)."),
-            ("007", "adr-007-occlusion-handling.md", "Graceful degradation hierarchy: dual ankles → single ankle → bbox → Kalman."),
-            ("008", "adr-008-kalman-epistemology.md", "Epistemic states (OBSERVED/PREDICTED) and inhibition of blind de-escalation."),
-            ("009", "adr-009-decoupled-statecharts.md", "Orthogonal statecharts: formal decoupling of spatial occupancy and dwell time."),
-            ("010", "adr-010-dual-latency.md", "Dual time horizons: per-frame hardware latency (T_system) vs physical event (T_event)."),
-            ("011", "adr-011-mahalanobis-hungarian.md", "Mahalanobis gating χ²_2 ≤ 9.21, Hungarian matching O(N³), and Spatial Birth NMS."),
-            ("012", "adr-012-synthetic-yolo.md", "Photorealistic pinhole single-identity compositing for regression testing."),
+            ("002", "adr-002-homography-vs-monocular-3d.md", "Deterministic 3x3 DLT planar mapping (Zw=0) vs heavy monocular 3D networks."),
+            ("003", "adr-003-onnx-runtime-coreml.md", "Decoupled PyTorch inference via ONNX Runtime (ANE / GPU / INT8 PTQ)."),
+            ("004", "adr-004-spatial-fsm-hysteresis.md", "Spatial Schmitt Trigger (P_danger vs P_release) to eliminate contactor chattering."),
+            ("005", "adr-005-homography-vectorization-geometric-validation.md", "Collinearity checks and projective numerical stability validation κ(H) < 10^12."),
+            ("006", "adr-006-prepared-geometries-dynamic-debounce-bypass.md", "GEOS (C) micro-optimizations and instant bypass at vn ≥ 1.6 m/s (ISO 13855)."),
+            ("007", "adr-007-occlusion-handling-confidence-propagation.md", "Graceful degradation hierarchy: dual ankles → single ankle → bbox → Kalman."),
+            ("008", "adr-008-kalman-epistemology-noise-divergence.md", "Epistemic states (OBSERVED/PREDICTED) and inhibition of blind de-escalation."),
+            ("009", "adr-009-decoupled-spatial-dwell-statecharts.md", "Orthogonal statecharts: formal decoupling of spatial occupancy and dwell time."),
+            ("010", "adr-010-dual-latency-profiling-iso13855.md", "Dual time horizons: per-frame hardware latency (T_system) vs physical event (T_event)."),
+            ("011", "adr-011-mahalanobis-hungarian-mot.md", "Mahalanobis gating χ²_2 ≤ 9.21, Hungarian matching O(N³), and Spatial Birth NMS."),
+            ("012", "adr-012-synthetic-yolo-video-generation.md", "Photorealistic pinhole single-identity compositing for regression testing."),
+            ("013", "adr-013-foveated-far-field-roi-inference.md", "Foveated far-field ROI inference and Option B walkway delimitation (Yw ≤ 6 m)."),
         ]
 
     table_top = 0.885
-    row_height = 0.029
+    row_height = 0.0268
 
     th_box = patches.Rectangle((0.065, table_top - 0.024), 0.87, 0.024, facecolor="#1E293B", edgecolor="none", zorder=3)
     ax.add_patch(th_box)
     ref_col = "REFERENCIA / ARCHIVO" if lang == "es" else "REFERENCE / FILE"
     dec_col = "DECISIÓN ARQUITECTÓNICA & IMPACTO INDUSTRIAL" if lang == "es" else "ARCHITECTURAL DECISION & INDUSTRIAL IMPACT"
-    ax.text(0.08, table_top - 0.012, "ADR", fontsize=7.2, fontweight="bold", color="#38BDF8", va="center", zorder=4)
-    ax.text(0.145, table_top - 0.012, ref_col, fontsize=7.2, fontweight="bold", color="#38BDF8", va="center", zorder=4)
-    ax.text(0.42, table_top - 0.012, dec_col, fontsize=7.2, fontweight="bold", color="#38BDF8", va="center", zorder=4)
+    ax.text(0.075, table_top - 0.012, "ADR", fontsize=7.0, fontweight="bold", color="#38BDF8", va="center", zorder=4)
+    ax.text(0.135, table_top - 0.012, ref_col, fontsize=7.0, fontweight="bold", color="#38BDF8", va="center", zorder=4)
+    ax.text(0.505, table_top - 0.012, dec_col, fontsize=7.0, fontweight="bold", color="#38BDF8", va="center", zorder=4)
 
     y_cur = table_top - 0.026
     for idx, (num, path, desc) in enumerate(adrs):
@@ -1186,9 +1188,9 @@ def render_page_8(pdf, lang: str = "es"):
         r_box = patches.Rectangle((0.065, y_cur - row_height), 0.87, row_height, facecolor=row_bg, edgecolor="#E2E8F0", lw=0.5, zorder=3)
         ax.add_patch(r_box)
 
-        ax.text(0.08, y_cur - row_height/2, f"ADR-{num}", fontsize=7.0, fontweight="bold", color="#0F172A", va="center", zorder=4)
-        ax.text(0.145, y_cur - row_height/2, path, fontsize=6.2, color="#2563EB", family="monospace", va="center", zorder=4)
-        ax.text(0.42, y_cur - row_height/2, desc, fontsize=6.4, color=COLOR_TEXT_MAIN, va="center", zorder=4)
+        ax.text(0.075, y_cur - row_height/2, f"ADR-{num}", fontsize=6.6, fontweight="bold", color="#0F172A", va="center", zorder=4)
+        ax.text(0.135, y_cur - row_height/2, path, fontsize=5.6, color="#2563EB", family="monospace", va="center", zorder=4)
+        ax.text(0.505, y_cur - row_height/2, desc, fontsize=6.0, color=COLOR_TEXT_MAIN, va="center", zorder=4)
         y_cur -= row_height
 
     c2_title = "2. PREGUNTAS FUNDAMENTALES Y CRITERIOS DE DISEÑO ARQUITECTÓNICO" if lang == "es" else "2. FUNDAMENTAL ARCHITECTURAL QUESTIONS & DESIGN CRITERIA"

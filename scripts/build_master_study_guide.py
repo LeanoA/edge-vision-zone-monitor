@@ -9,7 +9,7 @@ Incorporates:
   - Preguntas y Respuestas de Arquitectura (docs/architecture/preguntas-y-respuestas-arquitectura.md)
   - Pipeline de Datos Sintéticos Pinhole (docs/data/synthetic_generation.md)
   - Benchmarks de Runtimes y Cuantización (docs/benchmarks/*.md)
-  - Compendio Íntegro de los 12 ADRs (docs/decisions/adr-*.md)
+  - Compendio Íntegro de los 13 ADRs (docs/decisions/adr-*.md)
   - Implementación Real y Snippets de Código
   - Criterios de Diseño y Preguntas Fundamentales de Arquitectura
 
@@ -251,7 +251,7 @@ def build_cover() -> str:
   #v(1.5cm)
   #text(fill: rgb("#64748B"), size: 8pt)[
     Documento técnico de referencia y estudio generado automáticamente a partir del repositorio oficial. \
-    Incluye la totalidad de las especificaciones, justificaciones matemáticas, benchmarks y el catálogo completo de los 12 ADRs.
+    Incluye la totalidad de las especificaciones, justificaciones matemáticas, benchmarks y el catálogo completo de los 13 ADRs.
   ]
 ]
 
@@ -434,10 +434,10 @@ Para garantizar la legibilidad y evitar desbordamientos, las tablas de benchmark
     # --------------------------------------------------------------------------
     # CAPÍTULO 7: COMPENDIO COMPLETO DE ARCHITECTURE DECISION RECORDS (ADRs)
     # --------------------------------------------------------------------------
-    print("  -> Procesando Capítulo 7: Compendio de los 12 ADRs...")
+    print("  -> Procesando Capítulo 7: Compendio de los 13 ADRs...")
     typst_parts.append("\n= Compendio Completo de Architecture Decision Records (ADRs) <cap-adrs>\n")
     typst_parts.append("""
-En este capítulo se recopilan de manera íntegra y exhaustiva las doce decisiones arquitectónicas (ADRs) que gobiernan la totalidad del sistema *Edge Safety Guard*. Cada documento define el contexto, las opciones evaluadas, los trade-offs matemáticos/computacionales, la decisión adoptada y sus consecuencias directas en seguridad industrial.
+En este capítulo se recopilan de manera íntegra y exhaustiva las trece decisiones arquitectónicas (ADRs) que gobiernan la totalidad del sistema *Edge Safety Guard*. Cada documento define el contexto, las opciones evaluadas, los trade-offs matemáticos/computacionales, la decisión adoptada y sus consecuencias directas en seguridad industrial.
 
 #align(center)[
   #table(
@@ -450,14 +450,15 @@ En este capítulo se recopilan de manera íntegra y exhaustiva las doce decision
     [#strong[002]], [#link(<adr-002>)[ADR-002]], [Mapeo planar DLT 3x3 determinista (Zw = 0) vs estimación monocular 3D.],
     [#strong[003]], [#link(<adr-003>)[ADR-003]], [Inferencia desacoplada de PyTorch vía ONNX Runtime (CoreML / INT8).],
     [#strong[004]], [#link(<adr-004>)[ADR-004]], [Schmitt trigger espacial con banda de 200 mm contra el chattering.],
-    [#strong[005]], [#link(<adr-005>)[ADR-005]], [Validación preventiva de colinealidad y estabilidad numérica κ(H) < 10^6.],
+    [#strong[005]], [#link(<adr-005>)[ADR-005]], [Validación preventiva de colinealidad y estabilidad numérica κ(H) < 10^12.],
     [#strong[006]], [#link(<adr-006>)[ADR-006]], [Geometrías preparadas GEOS (C) y bypass dinámico por velocidad vn ≥ 1.6 m/s.],
     [#strong[007]], [#link(<adr-007>)[ADR-007]], [Manejo jerárquico de oclusiones: tobillos duales → individual → bbox.],
     [#strong[008]], [#link(<adr-008>)[ADR-008]], [Epistemología Kalman (OBSERVED/PREDICTED) y bloqueo de desescalada ciega.],
     [#strong[009]], [#link(<adr-009>)[ADR-009]], [Statecharts ortogonales concurrentes: separación ocupación vs dwell time.],
     [#strong[010]], [#link(<adr-010>)[ADR-010]], [Profiling de doble horizonte: hardware (T_system) vs evento físico (T_event).],
     [#strong[011]], [#link(<adr-011>)[ADR-011]], [MOT Bayesiano: Gating Mahalanobis χ² ≤ 9.21, Húngaro y Spatial Birth NMS.],
-    [#strong[012]], [#link(<adr-012>)[ADR-012]], [Composición fotorrealista pinhole de identidad única para testing formal.]
+    [#strong[012]], [#link(<adr-012>)[ADR-012]], [Composición fotorrealista pinhole de identidad única para testing formal.],
+    [#strong[013]], [#link(<adr-013>)[ADR-013]], [Inferencia foveada de doble pasada (far_field_roi) y delimitación de pasillo seguro (Yw ≤ 6 m).]
   )
 ]
 
@@ -501,91 +502,142 @@ En esta sección se exponen las implementaciones reales de los componentes nucle
 == Cálculo de Condicionamiento y Proyección Vectorizada (src/core/homography.py)
 
 #callout(title: "Contrato Numérico y Estabilidad", color: rgb("#0284C7"))[
-  El número de condición $kappa(bold(H)) = sigma_"max" / sigma_"min"$ se calcula mediante descomposición en valores singulares (SVD). Si $kappa(bold(H)) >= 10^6$, la calibración se rechaza inmediatamente para evitar errores de amplificación milimétrica en el cálculo de distancias al suelo.
+  El número de condición $kappa(bold(H)) = sigma_"max" / sigma_"min"$ se calcula mediante descomposición en valores singulares (`np.linalg.cond(H)`). Si $kappa(bold(H)) > 10^12$, la calibración se rechaza inmediatamente para evitar errores de amplificación milimétrica en el cálculo de distancias al suelo.
 ]
 
 ```python
 # src/core/homography.py
-def calculate_condition_number(H: np.ndarray) -> float:
-    \"\"\"Calcula el número de condición κ(H) = σ_max / σ_min vía SVD.\"\"\"
-    s = np.linalg.svd(H, compute_uv=False)
-    if s[-1] < 1e-12:
-        return float("inf")
-    return float(s[0] / s[-1])
+def compute_homography(self, method: Optional[int] = None) -> np.ndarray:
+    H, _ = cv2.findHomography(self._image_points, self._world_points, method=method_flag)
+    H = H.astype(np.float64)
+    if abs(H[2, 2]) > 1e-12:
+        H = H / H[2, 2]
+    det = float(np.linalg.det(H))
+    if abs(det) < 1e-10:
+        raise ValueError(f"Homography matrix is singular or near-singular: det(H) = {det:.2e} < 1e-10.")
+    H_inv = np.linalg.inv(H)
+    cond = float(np.linalg.cond(H))
+    if cond > 1e12 or np.isnan(cond) or np.isinf(cond):
+        raise ValueError(f"Homography matrix is ill-conditioned: condition number kappa(H) = {cond:.2e} > 1e12.")
+    self._H, self._H_inv, self._is_calibrated = H, H_inv, True
+    return self._H
 
-def project_to_world(self, points: np.ndarray) -> np.ndarray:
-    \"\"\"Proyección vectorizada en NumPy de píxeles (u, v) a suelo métrico (X, Y) con Zw = 0.\"\"\"
-    pts = np.atleast_2d(points)
-    homogeneous = np.column_stack([pts, np.ones(len(pts))])
-    transformed = (self.H @ homogeneous.T).T
-    # Normalización proyectiva por coordenada homogénea W
-    return transformed[:, :2] / transformed[:, 2:3]
+def project_batch(self, points: np.ndarray, to_world: bool = True) -> np.ndarray:
+    pts = np.asarray(points, dtype=np.float64)
+    M = self._H if to_world else self._H_inv
+    pts_h = np.column_stack([pts, np.ones(len(pts), dtype=np.float64)])
+    proj = pts_h @ M.T
+    w = proj[:, 2:3]
+    if np.any(np.abs(w) < 1e-7):
+        raise ValueError("One or more points lie on or near the horizon line (|W| < 1e-7).")
+    return proj[:, :2] / w
 ```
 
-== Jerarquía de Anclaje de Tobillos (src/pipeline/safety_pipeline.py)
+== Jerarquía de Anclaje y Orquestación Foveada (src/pipeline/safety_pipeline.py)
 
-#callout(title: "Degradación Controlada", color: rgb("#16A34A"))[
-  Cumple con el *ADR-007*. La estimación anatómica prioriza la bisección de tobillos con confianza superior a 0.30. Si ambos están ocluidos, conmuta a la base de la caja delimitadora con penalización de confianza a 0.20 para informar al filtro de Kalman.
+#callout(title: "Degradación Controlada y Pasada Foveada", color: rgb("#16A34A"))[
+  Cumple con *ADR-007* y *ADR-013*. `extract_ground_anchor` prioriza el punto medio de ambos tobillos (`conf_threshold = 0.5`, confianza media `(left_conf + right_conf) / 2.0`), degrada a tobillo único (`conf * 0.75`) o a base de bounding box (`det_score * 0.40`, también activado si `bbox_h < min_ankle_bbox_height`). En `SafetyPipeline.process_frame`, la inferencia opcional sobre `far_field_roi` se fusiona mediante `deduplicate_detections`.
 ]
 
 ```python
 # src/pipeline/safety_pipeline.py
-def extract_ground_anchor(kpts: np.ndarray, bbox: Tuple[float, ...]) -> Tuple[Tuple[float, float], AnchorSource, float]:
-    left_conf, right_conf = float(kpts[15, 2]), float(kpts[16, 2])
-    # Nivel 1: Ambos tobillos visibles con confianza plena
-    if left_conf >= 0.30 and right_conf >= 0.30:
-        midpoint = ((float(kpts[15, 0]) + float(kpts[16, 0])) / 2.0,
-                    (float(kpts[15, 1]) + float(kpts[16, 1])) / 2.0)
-        return midpoint, AnchorSource.ANKLES_DUAL, min(left_conf, right_conf)
-    # Nivel 2: Tobillo individual (el otro tapado por maquinaria)
-    if left_conf >= 0.30:
-        return (float(kpts[15, 0]), float(kpts[15, 1])), AnchorSource.ANKLE_SINGLE, left_conf
-    if right_conf >= 0.30:
-        return (float(kpts[16, 0]), float(kpts[16, 1])), AnchorSource.ANKLE_SINGLE, right_conf
-    # Nivel 3: Base de Bounding Box (degradado)
-    bbox_bottom = ((bbox[0] + bbox[2]) / 2.0, bbox[3])
-    return bbox_bottom, AnchorSource.BBOX_BOTTOM, 0.20
+def extract_ground_anchor(
+    keypoints: np.ndarray,
+    bbox: Optional[Tuple[float, float, float, float]] = None,
+    conf_threshold: float = 0.5,
+    scale: float = 1.0,
+    pad_x: float = 0.0,
+    pad_y: float = 0.0,
+    allow_bbox_fallback: bool = True,
+    det_score: float = 1.0,
+    min_ankle_bbox_height: float = 0.0,
+) -> Optional[Tuple[Tuple[float, float], AnchorSource, float]]:
+    if bbox is not None and min_ankle_bbox_height > 0.0:
+        if abs(float(bbox[3]) - float(bbox[1])) < min_ankle_bbox_height:
+            if allow_bbox_fallback:
+                anchor_pt = unletterbox_point((bbox[0] + bbox[2]) / 2.0, bbox[3], scale, pad_x, pad_y)
+                return anchor_pt, AnchorSource.BBOX_BOTTOM, float(det_score) * 0.40
+            return None
+    left_ankle, right_ankle = keypoints[15], keypoints[16]
+    left_valid = float(left_ankle[2]) >= conf_threshold
+    right_valid = float(right_ankle[2]) >= conf_threshold
+    if left_valid and right_valid:
+        mid_x = (float(left_ankle[0]) + float(right_ankle[0])) / 2.0
+        mid_y = (float(left_ankle[1]) + float(right_ankle[1])) / 2.0
+        avg_conf = (float(left_ankle[2]) + float(right_ankle[2])) / 2.0
+        return unletterbox_point(mid_x, mid_y, scale, pad_x, pad_y), AnchorSource.ANKLES_DUAL, float(avg_conf)
+    elif left_valid:
+        return unletterbox_point(float(left_ankle[0]), float(left_ankle[1]), scale, pad_x, pad_y), AnchorSource.ANKLE_SINGLE, float(left_ankle[2]) * 0.75
+    elif right_valid:
+        return unletterbox_point(float(right_ankle[0]), float(right_ankle[1]), scale, pad_x, pad_y), AnchorSource.ANKLE_SINGLE, float(right_ankle[2]) * 0.75
+    elif allow_bbox_fallback and bbox is not None:
+        anchor_pt = unletterbox_point((bbox[0] + bbox[2]) / 2.0, bbox[3], scale, pad_x, pad_y)
+        return anchor_pt, AnchorSource.BBOX_BOTTOM, float(det_score) * 0.40
+    return None
+
+# Dentro de SafetyPipeline.process_frame(self, frame, capture_timestamp=None):
+model_out = self.engine.infer(tensor)
+roi_model_out = self.engine.infer(roi_tensor) if roi_bounds is not None else None
+detections = self.parse_detections(model_out, scale, pad_x, pad_y, orig_w, orig_h)
+if roi_bounds is not None and roi_model_out is not None:
+    roi_detections = self.parse_detections(
+        roi_model_out, roi_scale, roi_pad_x, roi_pad_y, rx2 - rx1, ry2 - ry1,
+        conf_threshold_override=self.far_field_conf_threshold, offset_xy=(float(rx1), float(ry1)),
+    )
+    detections = deduplicate_detections(detections + roi_detections)
+world_positions = self.homography.project_batch(anchors_arr, to_world=True)
+active_tracks = self.tracker.update(position_estimates)
+safety_output = self.fsm.update(tracks_for_fsm, timestamp=t_start)
 ```
 
-== Filtro de Kalman Cinemático y Gating de Mahalanobis (src/core/kalman_filter.py)
+== Filtro de Kalman Cinemático con Actualización de Joseph (src/core/kalman_filter.py)
 
 ```python
 # src/core/kalman_filter.py
-def mahalanobis_distance(self, z: np.ndarray) -> float:
-    \"\"\"Calcula d_M^2 contra la covarianza de innovación S = H P^- H^T + R.\"\"\"
-    y = z - (self._H @ self._x)
-    S = self._H @ self._P @ self._H.T + self._R
-    return float(y.T @ np.linalg.inv(S) @ y)
-
-def update(self, measurement: Tuple[float, float], confidence: float, source: AnchorSource) -> PositionEstimate:
+def mahalanobis_distance(self, measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]], R: Optional[np.ndarray] = None) -> float:
     z = np.asarray(measurement, dtype=np.float64)
-    y = z - (self._H @ self._x)
-    S = self._H @ self._P @ self._H.T + self._R
-    K = self._P @ self._H.T @ np.linalg.inv(S)
-    self._x = self._x + K @ y
-    self._P = (self._I - K @ self._H) @ self._P
-    return PositionEstimate(xy_m=(float(self._x[0]), float(self._x[1])), confidence=confidence, source=source)
+    y0, y1 = z[0] - self._x[0], z[1] - self._x[1]
+    r_mat = self._R if R is None else np.asarray(R, dtype=np.float64)
+    s_inv = np.linalg.inv(self._P[:2, :2] + r_mat)
+    d2 = y0 * (s_inv[0, 0] * y0 + s_inv[0, 1] * y1) + y1 * (s_inv[1, 0] * y0 + s_inv[1, 1] * y1)
+    return float(max(0.0, d2))
+
+def update(self, measurement: Union[np.ndarray, Tuple[float, float], Sequence[float]], R: Optional[np.ndarray] = None) -> np.ndarray:
+    z = np.asarray(measurement, dtype=np.float64)
+    r_mat = self._R if R is None else np.asarray(R, dtype=np.float64)
+    y = np.array([z[0] - self._x[0], z[1] - self._x[1]], dtype=np.float64)
+    s_inv = np.linalg.inv(self._P[:2, :2] + r_mat)
+    k_gain = self._P[:, :2] @ s_inv
+    self._x = self._x + k_gain @ y
+    # Forma estabilizada de Joseph: P = (I - K H) P (I - K H)^T + K R K^T
+    a_mat = self._I.copy()
+    a_mat[:, :2] -= k_gain
+    self._P = a_mat @ self._P @ a_mat.T + k_gain @ r_mat @ k_gain.T
+    self._P = 0.5 * (self._P + self._P.T)
+    return self._x.copy()
 ```
 
-== Schmitt Trigger Espacial y Bypass por Velocidad ISO 13855 (src/core/spatial_fsm.py)
+== Schmitt Trigger Espacial Vectorizado y Bypass ISO 13855 (src/core/spatial_fsm.py)
 
 ```python
 # src/core/spatial_fsm.py
-def evaluate_occupant(self, track_id: int, pos: PositionEstimate, velocity: np.ndarray) -> Tuple[bool, OccupancyState]:
-    point = Point(pos.xy_m)
-    in_danger = self._prepared_danger.contains(point)
-    in_release = self._prepared_release.contains(point)
-    
-    # Bypass dinámico de confirmación si la velocidad hacia el peligro es alta (ISO 13855)
-    vn = np.dot(velocity, self._approach_normal)
-    if in_danger and vn >= self.config.iso_k_speed:
-        self._confirm_counts[track_id] = self.config.n_confirm  # Disparo instantáneo en 1 frame
-        
-    # Desescalada asimétrica condicionada estrictamente a fotones OBSERVED (ADR-008)
-    if not in_release and pos.status == ObservationStatus.OBSERVED:
-        self._release_counts[track_id] += 1
+def evaluate_containment(self, tracks: List[Track]) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    positions = np.array([trk.position for trk in tracks], dtype=np.float64)
+    xs, ys = positions[:, 0], positions[:, 1]
+    in_danger = shapely.contains_xy(self._danger_poly, xs, ys)
+    in_release = shapely.contains_xy(self._release_poly, xs, ys)
+    in_warning = shapely.contains_xy(self._warning_poly, xs, ys) if self._warning_poly is not None else (in_release & ~in_danger)
+    return in_danger, in_release, in_warning
+
+# Dentro de SpatialFSM.update(tracks, timestamp):
+if in_danger:
+    record.clean_count = 0
+    if fast_approach or record.fast_approach:
+        record.danger_count = max(record.danger_count + 1, self._config.n_confirm)
     else:
-        self._release_counts[track_id] = 0  # Si está en PREDICTED o STALE, no desescala jamás!
+        record.danger_count += 1
+elif not in_release and obs_status == ObservationStatus.OBSERVED:
+    record.clean_count += 1  # Solo desescala con fotones OBSERVED reales
 ```
 """
     typst_parts.append(code_snippets)

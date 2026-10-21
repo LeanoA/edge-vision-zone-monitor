@@ -29,32 +29,34 @@ Ese enfoque es probabilístico, opaco, computacionalmente costoso y no verificab
 ```
                     PERCEPTION
                          │
-Camera frame ──► Pose inference (YOLO11-Pose ONNX / CoreML)
+Camera frame ──► Pose inference (YOLO11-Pose ONNX / CoreML + Foveated Far-Field ROI)
                          │
                          ▼
-                 keypoint extraction (Tobillos 15 y 16)
+                 keypoint extraction (Tobillos 15 y 16) + 2D Deduplication
                          │
                          ▼
-                 ground-point estimate (Fallback a Bbox Bottom)
+                 ground-point estimate (ANKLES_DUAL / ANKLE_SINGLE / BBOX_BOTTOM)
                          │
 ─────────────────────────┼────────────────────────────────────────
                     GEOMETRY
                          │
                          ▼
-                   Homography (DLT 3x3, κ(H) < 10^6)
+                   Homography (DLT 3x3, κ(H) < 10^12)
                          │
                          ▼
-                 (X,Y) estimate [metros en piso físico]
+                 (X,Y) estimate [metros en piso físico] + Metric Deduplication (0.55 m)
                          │
 ─────────────────────────┼────────────────────────────────────────
                   STATE ESTIMATION
                          │
                          ▼
-                Kalman Filter 2D (Velocidad Constante)
+                Kalman Predict 2D (Velocidad Constante)
                          │
                          ▼
-            filtered metric trajectory (OBSERVED / PREDICTED / STALE)
-            + Mahalanobis χ² Gating + Hungarian Association
+            Mahalanobis χ²₂ ≤ 9.210 Gating ──► Hungarian Assignment
+                         │
+                         ▼
+            Joseph Covariance Update (OBSERVED / PREDICTED / STALE)
                          │
 ─────────────────────────┼────────────────────────────────────────
                  DECISION LOGIC
@@ -197,7 +199,7 @@ Para resolver el seguimiento multiobjeto en presencia de cruces de operarios y d
 | **002** | [ADR-002](decisions/adr-002-homography-vs-monocular-3d.md) | Mapeo proyectivo DLT $3 \times 3$ determinista en suelo ($Z_w=0$) en lugar de redes neuronales 3D pesadas. |
 | **003** | [ADR-003](decisions/adr-003-onnx-runtime-coreml.md) | Inferencia desacoplada de PyTorch mediante ONNX Runtime (CoreML / INT8 TensorRT). |
 | **004** | [ADR-004](decisions/adr-004-spatial-fsm-hysteresis.md) | Schmitt trigger espacial y filtrado cinemático contra el *chattering* en actuadores mecánicos. |
-| **005** | [ADR-005](decisions/adr-005-homography-vectorization-geometric-validation.md) | Verificación matemática preventiva de colinealidad y condicionamiento numérico $\kappa(H) < 10^6$. |
+| **005** | [ADR-005](decisions/adr-005-homography-vectorization-geometric-validation.md) | Verificación matemática preventiva de colinealidad y condicionamiento numérico $\kappa(H) < 10^{12}$. |
 | **006** | [ADR-006](decisions/adr-006-prepared-geometries-dynamic-debounce-bypass.md) | Micro-optimizaciones GEOS (C) y bypass instantáneo por vector de aproximación $v_n \ge 1.6\text{ m/s}$. |
 | **007** | [ADR-007](decisions/adr-007-occlusion-handling-confidence-propagation.md) | Jerarquía de degradación ante oclusión de pies: tobillos duales $\to$ individual $\to$ bbox $\to$ Kalman coasting. |
 | **008** | [ADR-008](decisions/adr-008-kalman-epistemology-noise-divergence.md) | Estados epistemológicos (`OBSERVED`, `PREDICTED`, `STALE`) y desescalada bloqueada sin fotones reales. |
@@ -205,6 +207,7 @@ Para resolver el seguimiento multiobjeto en presencia de cruces de operarios y d
 | **010** | [ADR-010](decisions/adr-010-dual-latency-profiling-iso13855.md) | Doble horizonte temporal: rendimiento de hardware por frame ($T_{\text{system}}$) vs respuesta física ($T_{\text{event}}$). |
 | **011** | [ADR-011](decisions/adr-011-mahalanobis-hungarian-mot.md) | Gating elipsoidal de Mahalanobis $\chi^2$, asignación global Húngara y Spatial Birth NMS. |
 | **012** | [ADR-012](decisions/adr-012-synthetic-yolo-video-generation.md) | Composición fotorrealista pinhole de identidad única y HUD desacoplado para validación formal. |
+| **013** | [ADR-013](decisions/adr-013-foveated-far-field-roi-inference.md) | Inferencia foveada de doble pasada (`far_field_roi`) y delimitación de pasillo seguro ($Y_w \le 6\text{ m}$). |
 
 ---
 
