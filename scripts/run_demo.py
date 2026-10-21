@@ -338,7 +338,18 @@ class DemoRunner:
                         "pos": [round(float(t.position[0]), 3), round(float(t.position[1]), 3)],
                         "vel": [round(float(t.velocity[0]), 3), round(float(t.velocity[1]), 3)],
                         "status": t.observation_status.value if hasattr(t, "observation_status") else "UNKNOWN",
-                        "dwell_s": round(float(t.dwell_time_s), 2) if hasattr(t, "dwell_time_s") else 0.0,
+                        "dwell_s": round(
+                            float(
+                                t.dwell_time_s
+                                if hasattr(t, "dwell_time_s")
+                                else (
+                                    self.pipeline.fsm.get_track_dwell_time(t.track_id)
+                                    if hasattr(self.pipeline, "fsm") and hasattr(self.pipeline.fsm, "get_track_dwell_time")
+                                    else 0.0
+                                )
+                            ),
+                            2,
+                        ),
                     }
                     for t in result.tracks
                 ],

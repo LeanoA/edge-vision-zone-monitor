@@ -412,7 +412,9 @@ class DualVisualizer:
                 cv2.arrowedLine(canvas, (u, v), (u_end, v_end), color, 2, tipLength=0.25, line_type=cv2.LINE_AA)
 
             # High-contrast track pill
-            source_tag = f" [{track.anchor_source.value[:4]}]" if hasattr(track, "anchor_source") and track.anchor_source else ""
+            src = getattr(track, "source", None) or getattr(track, "anchor_source", None)
+            src_val = src.value if hasattr(src, "value") else (str(src) if src else "")
+            source_tag = f" [{src_val[:4]}]" if src_val else ""
             label = f"ID:{track.track_id} | {speed:.1f}m/s{source_tag}"
             self._draw_pill(canvas, label, u + 12, v - 6, (20, 20, 20), (255, 255, 255), font_scale=0.42, pad_x=6, pad_y=4)
 

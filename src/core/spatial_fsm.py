@@ -187,6 +187,11 @@ class SpatialFSM:
         """Return maximum dwell time in seconds of any active inside track."""
         return self._last_dwell_time
 
+    def get_track_dwell_time(self, track_id: int) -> float:
+        """Return accumulated dwell time in seconds for a specific track ID."""
+        rec = self._track_records.get(track_id)
+        return float(rec.dwell_time_s) if rec is not None else 0.0
+
     @property
     def danger_polygon(self) -> Polygon:
         return self._danger_poly
