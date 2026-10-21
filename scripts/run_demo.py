@@ -16,6 +16,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 import cv2
 import numpy as np
+import yaml
 
 # Ensure repository root is on PYTHONPATH
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -28,6 +29,41 @@ from src.core.spatial_fsm import SpatialFSM, ZoneConfig
 from src.inference.onnx_engine import OnnxEngine
 from src.pipeline.safety_pipeline import LayoutMode, PipelineResult, SafetyPipeline
 from src.utils.visualizer import DualVisualizer
+
+
+def load_zone_config_from_yaml(config_path: Union[str, Path]) -> ZoneConfig:
+    """Extract ZoneConfig parameters from YAML configuration file, or fallback to defaults."""
+    path = Path(config_path)
+    if not path.is_file():
+        return ZoneConfig(
+            name="IndustrialHazardZone",
+            danger_polygon=[(1.0, 2.0), (3.0, 2.0), (3.0, 4.0), (1.0, 4.0)],
+            warning_polygon=[(0.8, 1.8), (3.2, 1.8), (3.2, 4.2), (0.8, 4.2)],
+            hysteresis_buffer_m=0.20,
+            n_confirm=3,
+            n_release=5,
+            dwell_warning_s=5.0,
+            iso_k_speed=1.6,
+        )
+
+    with open(path, "r", encoding="utf-8") as f:
+        raw_cfg = yaml.safe_load(f) or {}
+
+    zone_data = raw_cfg.get("zones", {})
+    danger_poly = [tuple(p) for p in zone_data.get("danger_polygon", [(1.0, 2.0), (3.0, 2.0), (3.0, 4.0), (1.0, 4.0)])]
+    warning_poly = [tuple(p) for p in zone_data.get("warning_polygon", [])] if "warning_polygon" in zone_data else None
+
+    return ZoneConfig(
+        name=zone_data.get("name", "IndustrialHazardZone"),
+        danger_polygon=danger_poly,
+        warning_polygon=warning_poly,
+        hysteresis_buffer_m=float(zone_data.get("hysteresis_buffer_m", 0.20)),
+        n_confirm=int(zone_data.get("n_confirm", 3)),
+        n_release=int(zone_data.get("n_release", 5)),
+        dwell_warning_s=float(zone_data.get("dwell_warning_s", 5.0)),
+        dwell_violation_s=float(zone_data.get("dwell_violation_s", 10.0)),
+        iso_k_speed=float(zone_data.get("iso_k_speed", 1.6)),
+    )
 
 
 def compute_file_sha256(filepath: Union[str, Path]) -> str:
@@ -81,6 +117,7 @@ class DemoRunnerConfig:
     output_events: Optional[Path] = None
     output_summary: Optional[Path] = None
     conf_threshold: float = 0.5
+    min_ankle_bbox_height: float = 0.0
     max_frames: Optional[int] = None
 
 
@@ -205,17 +242,8 @@ class DemoRunner:
         homography = HomographyManager(config_path=self.config.config_path)
         tracker = MultiTargetKalmanTracker()
         
-        # Default industrial safeguarding zone if not defined in config
-        zone_cfg = ZoneConfig(
-            name="IndustrialHazardZone",
-            danger_polygon=[(1.0, 2.0), (3.0, 2.0), (3.0, 4.0), (1.0, 4.0)],
-            warning_polygon=[(0.8, 1.8), (3.2, 1.8), (3.2, 4.2), (0.8, 4.2)],
-            hysteresis_buffer_m=0.20,
-            n_confirm=3,
-            n_release=5,
-            dwell_warning_s=5.0,
-            iso_k_speed=1.6,
-        )
+        # Load industrial safeguarding zone from config (or default fallback)
+        zone_cfg = load_zone_config_from_yaml(self.config.config_path)
         fsm = SpatialFSM(config=zone_cfg)
 
         self.pipeline = SafetyPipeline(
@@ -224,6 +252,7 @@ class DemoRunner:
             tracker=tracker,
             fsm=fsm,
             conf_threshold=self.config.conf_threshold,
+            min_ankle_bbox_height=self.config.min_ankle_bbox_height,
         )
 
         # 3. Instantiate Dual Visualizer
@@ -544,6 +573,12 @@ def parse_args(args: Optional[List[str]] = None) -> DemoRunnerConfig:
         help="Confidence threshold for pose keypoints and bounding boxes.",
     )
     parser.add_argument(
+        "--min-ankle-bbox-height",
+        type=float,
+        default=0.0,
+        help="Minimum bounding box height required for ankle extraction before Tier 3 fallback.",
+    )
+    parser.add_argument(
         "--max-frames",
         type=int,
         default=None,
@@ -567,6 +602,7 @@ def parse_args(args: Optional[List[str]] = None) -> DemoRunnerConfig:
         output_events=parsed.output_events,
         output_summary=parsed.output_summary,
         conf_threshold=parsed.conf_threshold,
+        min_ankle_bbox_height=parsed.min_ankle_bbox_height,
         max_frames=parsed.max_frames,
     )
 
