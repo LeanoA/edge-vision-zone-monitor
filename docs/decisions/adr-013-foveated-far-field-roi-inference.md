@@ -131,6 +131,16 @@ Se evaluó el comportamiento comparativo entre el modo estándar (pasada única 
 | **`mendeley_industrial` (173 f)** | Pista inicia tarde en cuadro 53 | **Rastreado desde Cuadro 3** ($[10.04, 15.23]\text{ m} \to 12.58\text{ m}$) | 10 tracks únicos, 65 `WARNING`, 73 `DANGER` |
 | **`mendeley_industrial` Latencia $T_1$** | $15.35\text{ ms}$ ($p_{95} = 18.26\text{ ms}$) | **$30.38\text{ ms}$ ($p_{95} = 33.81\text{ ms}$)** | **$\le 50\text{ ms}$ (Presupuesto ISO 13855 cumplido)** |
 
+<div align="center">
+  <img src="../figures/demo_factory_walkway_dual_view.png" alt="Foveated Far-Field ROI Detection on Mendeley Walkway Violation" width="95%" />
+  <p><em>Figura 1: Validación en <code>mendeley_walkway_violation</code> (Frame 145). La ROI foveada (recuadro cian) detecta a los dos operarios bajo el cartel MAMUL DEPO ($Y_w \approx 16.2\text{–}17.1\text{ m}$) con anclaje <code>BBOX_BOTTOM</code> y activa <code>SAFETY TRIP: INSIDE</code> al cruzar el borde amarillo ($X_w < 10.0\text{ m}$).</em></p>
+</div>
+
+<div align="center">
+  <img src="../figures/demo_unauthorized_intervention_dual_view.png" alt="Scale-Adaptive Tracking on Mendeley Industrial" width="95%" />
+  <p><em>Figura 2: Validación en <code>mendeley_industrial</code> (Frame 125). Operación simultánea de anclaje anatómico de alta precisión (<code>ANKLES_DUAL</code>, operario cercano a $Y_w \approx 3.1\text{ m}$) y anclaje por ROI foveada (<code>BBOX_BOTTOM</code>, operario lejano a $Y_w \approx 12.6\text{ m}$) en $T_1 = 32.2\text{ ms}$.</em></p>
+</div>
+
 ---
 
 ## 5. Consecuencias y Límites de Cobertura Operacional (ODD)
