@@ -56,11 +56,13 @@ class DualVisualizer:
         bev_size: Tuple[int, int] = (600, 600),
         world_bounds: Optional[Tuple[float, float, float, float]] = None,
         headless: bool = False,
+        far_field_roi: Optional[Tuple[int, int, int, int]] = None,
     ) -> None:
         self.homography = homography
         self.fsm = fsm
         self.bev_size = bev_size  # (width, height)
         self.headless = bool(headless)
+        self.far_field_roi = far_field_roi
 
         # Compute dynamic world bounds if not explicitly supplied
         if world_bounds is not None:
@@ -277,6 +279,25 @@ class DualVisualizer:
             cv2.polylines(canvas, [self._release_img_poly], isClosed=True, color=(0, 200, 255), thickness=2, lineType=cv2.LINE_AA)
         if self._danger_img_poly is not None:
             cv2.polylines(canvas, [self._danger_img_poly], isClosed=True, color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
+            # Subtle translucent danger overlay in perspective view
+            overlay = canvas.copy()
+            cv2.fillPoly(overlay, [self._danger_img_poly], (0, 0, 180))
+            cv2.addWeighted(overlay, 0.12, canvas, 0.88, 0, canvas)
+
+        # 1b. Draw optional Foveated Far-Field ROI boundary
+        if self.far_field_roi is not None and len(self.far_field_roi) == 4:
+            rx1, ry1, rx2, ry2 = [int(v) for v in self.far_field_roi]
+            cv2.rectangle(canvas, (rx1, ry1), (rx2, ry2), (255, 220, 0), 1, cv2.LINE_AA)
+            cv2.putText(
+                canvas,
+                "FAR-FIELD ROI (640p FOVEATED)",
+                (rx1 + 6, max(ry1 + 16, 72)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.40,
+                (255, 220, 0),
+                1,
+                cv2.LINE_AA,
+            )
 
         # 2. Draw detections (bboxes, skeletons, anchors)
         for det in result.detections:

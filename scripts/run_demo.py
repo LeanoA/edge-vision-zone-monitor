@@ -31,6 +31,28 @@ from src.pipeline.safety_pipeline import LayoutMode, PipelineResult, SafetyPipel
 from src.utils.visualizer import DualVisualizer
 
 
+def load_far_field_roi_from_yaml(
+    config_path: Union[str, Path],
+) -> Tuple[Optional[Tuple[int, int, int, int]], float]:
+    """Extract optional far_field_roi [x1, y1, x2, y2] and far_field_conf_threshold from YAML."""
+    path = Path(config_path)
+    if not path.is_file():
+        return None, 0.30
+    with open(path, "r", encoding="utf-8") as f:
+        raw_cfg = yaml.safe_load(f) or {}
+
+    zone_data = raw_cfg.get("zones", {})
+    cam_data = raw_cfg.get("camera", {})
+    roi_raw = zone_data.get("far_field_roi") or cam_data.get("far_field_roi")
+    conf_raw = zone_data.get("far_field_conf_threshold", cam_data.get("far_field_conf_threshold", 0.30))
+
+    if isinstance(roi_raw, (list, tuple)) and len(roi_raw) == 4:
+        roi = (int(roi_raw[0]), int(roi_raw[1]), int(roi_raw[2]), int(roi_raw[3]))
+    else:
+        roi = None
+    return roi, float(conf_raw)
+
+
 def load_zone_config_from_yaml(config_path: Union[str, Path]) -> ZoneConfig:
     """Extract ZoneConfig parameters from YAML configuration file, or fallback to defaults."""
     path = Path(config_path)
@@ -244,6 +266,7 @@ class DemoRunner:
         
         # Load industrial safeguarding zone from config (or default fallback)
         zone_cfg = load_zone_config_from_yaml(self.config.config_path)
+        far_field_roi, far_field_conf = load_far_field_roi_from_yaml(self.config.config_path)
         fsm = SpatialFSM(config=zone_cfg)
 
         self.pipeline = SafetyPipeline(
@@ -253,6 +276,8 @@ class DemoRunner:
             fsm=fsm,
             conf_threshold=self.config.conf_threshold,
             min_ankle_bbox_height=self.config.min_ankle_bbox_height,
+            far_field_roi=far_field_roi,
+            far_field_conf_threshold=far_field_conf,
         )
 
         # 3. Instantiate Dual Visualizer
@@ -262,6 +287,7 @@ class DemoRunner:
             homography=homography,
             fsm=fsm,
             headless=is_headless,
+            far_field_roi=far_field_roi,
         )
 
         # 4. Initialize Telemetry Event File

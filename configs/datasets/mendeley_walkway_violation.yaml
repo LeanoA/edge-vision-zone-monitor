@@ -10,10 +10,10 @@ calibration:
   reprojection_tolerance_m: 0.05
   points:
     image:
-      - [250.0, 1020.0]   # Point 1: bottom-left
-      - [1680.0, 1020.0]  # Point 2: bottom-right
-      - [1400.0, 480.0]   # Point 3: top-right
-      - [520.0, 480.0]    # Point 4: top-left
+      - [100.0, 1020.0]   # Point 1: bottom-left (press bay left edge)
+      - [1684.0, 1020.0]  # Point 2: bottom-right (green walkway inner yellow border)
+      - [1515.0, 420.0]   # Point 3: top-right (green walkway inner yellow border, far corridor)
+      - [320.0, 420.0]    # Point 4: top-left (rear press bay boundary)
     world:
       - [0.0, 0.0]        # Point 1: bottom-left (meters)
       - [10.0, 0.0]       # Point 2: bottom-right
@@ -22,16 +22,18 @@ calibration:
 
 zones:
   name: "FactoryWalkwaySafetyZone"
+  far_field_roi: [1320, 200, 1700, 580]
+  far_field_conf_threshold: 0.30
   danger_polygon:
-    - [2.5, 3.0]
-    - [7.5, 3.0]
-    - [7.5, 10.0]
-    - [2.5, 10.0]
+    - [0.0, 0.0]
+    - [9.8, 0.0]
+    - [9.8, 23.0]
+    - [0.0, 23.0]
   warning_polygon:
-    - [1.8, 2.2]
-    - [8.2, 2.2]
-    - [8.2, 10.8]
-    - [1.8, 10.8]
+    - [-0.2, -0.2]
+    - [10.0, -0.2]
+    - [10.0, 23.2]
+    - [-0.2, 23.2]
   hysteresis_buffer_m: 0.20
   n_confirm: 3
   n_release: 5

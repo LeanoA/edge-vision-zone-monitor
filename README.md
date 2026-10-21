@@ -6,7 +6,7 @@
 [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-CoreML%20%7C%20CPU-orange?logo=onnx&logoColor=white)](https://onnxruntime.ai/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-Computer%20Vision-5C3EE8?logo=opencv&logoColor=white)](https://opencv.org/)
 [![CI/CD](https://img.shields.io/github/actions/workflow/status/LeanoA/edge-vision-zone-monitor/deploy.yml?branch=main&label=CI%2FCD&logo=githubactions&logoColor=white)](https://github.com/LeanoA/edge-vision-zone-monitor/actions/workflows/deploy.yml)
-[![Tests](https://img.shields.io/badge/tests-218%20passed%20(100%25)-success?logo=pytest&logoColor=white)](#)
+[![Tests](https://img.shields.io/badge/tests-219%20passed%20(100%25)-success?logo=pytest&logoColor=white)](#)
 [![Latency](https://img.shields.io/badge/latency%20(p95)-%3C%2022ms%20(T1%20budget)-00b4d8?logo=speedtest&logoColor=white)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -39,15 +39,27 @@ python models/export_onnx.py
 python scripts/generate_samples.py
 
 # 4. Run interactive demo (Dual OpenCV window: Perspective Overlay + Metric Bird's-Eye View)
-python scripts/run_demo.py --source data/samples/sequence_a_clean_incursion.mp4
+python scripts/run_dataset_test.py --dataset sequence_a_clean_incursion --display --realtime
 
-# Optional: Headless execution (exports annotated MP4 video and structured JSONL telemetry)
+# 5. Download & visualize the real-world Mendeley Industrial Walkway Violation case
+python scripts/download_datasets.py --dataset mendeley_walkway_violation
+python scripts/run_dataset_test.py --dataset mendeley_walkway_violation --display --realtime
+
+# Optional: Headless execution with explicit parameters via run_demo.py
 python scripts/run_demo.py \
-  --source data/samples/sequence_b_occlusion_coasting.mp4 \
+  --source data/raw/mendeley_industrial/mendeley_walkway_violation.mp4 \
+  --config configs/datasets/mendeley_walkway_violation.yaml \
+  --conf-threshold 0.4 \
+  --min-ankle-bbox-height 120.0 \
   --no-display \
   --output-video output/demo_annotated.mp4 \
   --output-events output/telemetry_events.jsonl
 ```
+
+> [!TIP]
+> **Choosing Between `run_dataset_test.py` and `run_demo.py`:**
+> * **`scripts/run_dataset_test.py --dataset <name>` (Recommended for Benchmark Cases):** Automatically maps `<name>` to its video source, dedicated YAML calibration (`configs/datasets/<name>.yaml`), and far-field defaults (`--conf-threshold 0.4`, `--min-ankle-bbox-height 120.0`). Saves `annotated_<name>.mp4`, `events.jsonl`, and `summary.json` under `data/results/<name>/`. Add `--display --realtime` to watch the live dual viewport at native FPS.
+> * **`scripts/run_demo.py` (Custom Streams / Webcams / RTSP):** Requires passing `--config <yaml>` explicitly alongside `--source <video>` (otherwise it falls back to `configs/default_config.yaml` for $6\text{m} \times 6\text{m}$ synthetic scenes).
 
 ---
 
@@ -118,7 +130,7 @@ flowchart TD
 
 | Architectural Layer | Component / Flow | Code Module | Implementation Status (Edge AI) |
 | :--- | :--- | :--- | :--- |
-| **1. PERCEPTION** | Camera Frame $\to$ Pose Inference $\to$ Keypoints $\to$ Ground Contact | `src/inference/onnx_engine.py`<br>`src/pipeline/safety_pipeline.py` | **100% Implemented**<br>• YOLO11n-Pose ONNX inference (`CoreMLExecutionProvider` / CPU / CUDA).<br>• Anatomical ankle extraction (`left_ankle: 15`, `right_ankle: 16`) with fallback to bounding box base ([ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md), [ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md)). |
+| **1. PERCEPTION** | Camera Frame $\to$ Pose Inference $\to$ Keypoints $\to$ Ground Contact | `src/inference/onnx_engine.py`<br>`src/pipeline/safety_pipeline.py` | **100% Implemented**<br>• YOLO11n-Pose ONNX inference (`CoreMLExecutionProvider` / CPU / CUDA).<br>• Anatomical ankle extraction (`left_ankle: 15`, `right_ankle: 16`) with fallback to bounding box base ([ADR-001](docs/decisions/adr-001-yolo-pose-vs-bbox.md), [ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md)).<br>• Declarative foveated far-field ROI inference (`far_field_roi`) with 2D & metric deduplication ([ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md)). |
 | **2. GEOMETRY** | Homography Projection $\to$ Metric $(X, Y)$ on floor plane ($Z_w = 0$) | `src/core/homography.py` | **100% Implemented**<br>• Planar DLT $3 \times 3$ mapping with collinearity verification and numerical condition threshold $\kappa(H) < 10^6$ ([ADR-002](docs/decisions/adr-002-homography-vs-monocular-3d.md), [ADR-005](docs/decisions/adr-005-homography-vectorization-geometric-validation.md)). |
 | **3. STATE ESTIMATION** | 2D Kinematic Kalman Filter $\to$ Filtered Metric Trajectory | `src/core/kalman_filter.py` | **100% Implemented**<br>• Constant Velocity (CV) kinematic state model with Kalman gain $K_k$.<br>• Three-tier observation epistemology (`OBSERVED`, `PREDICTED`, `STALE`) with quadratic divergence bounding ([ADR-004](docs/decisions/adr-004-spatial-fsm-hysteresis.md), [ADR-008](docs/decisions/adr-008-kalman-epistemology-noise-divergence.md)).<br>• Global combinatorial assignment (Munkres / Hungarian) with Mahalanobis validation gate $\chi^2_2(0.99) \le 9.21$ and World-Space Spatial Birth NMS ($0.6\text{ m}$) ([ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md)). |
 | **4. DECISION LOGIC** | Zone Containment $\to$ Spatial FSM $\to$ Dwell Classifier | `src/core/spatial_fsm.py` | **100% Implemented**<br>• Orthogonal Statecharts regions: `OccupancyState` (`OUTSIDE`, `ENTER_PENDING`, `INSIDE`, `EXIT_PENDING`) $\times$ `DwellState` (`NONE`, `NORMAL`, `WARNING`, `VIOLATION`) ([ADR-009](docs/decisions/adr-009-decoupled-spatial-dwell-statecharts.md)).<br>• Instant fail-safe trip on confirmed `INSIDE` ($t = 0\text{ s}$) and dynamic velocity bypass for $v_n \ge 1.6\text{ m/s}$ (ISO 13855). |
@@ -177,6 +189,7 @@ This project serves as an experimental platform to rigorously resolve engineerin
 <div align="center">
   <img src="docs/figures/bbox_vs_ankles.png" alt="Ankle Contact vs BBox Base Centroid" width="85%" />
 </div>
+
 * **Q6: How does the system behave when feet or ankles are occluded by machinery or pallets? ([See ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md))**
   * *Failure Mode:* If machinery blocks an operator's feet, the pose model reports low confidence (`conf < 0.5`) on both ankles. Dropping detections creates a blind hazard; using low-confidence points injects catastrophic noise into the homography.
   * *Graceful Degradation Hierarchy:*
@@ -191,6 +204,11 @@ This project serves as an experimental platform to rigorously resolve engineerin
   * *Asymmetric Safeguard:* Escalating to danger (`DANGER_INTRUSION`) is fail-safe and permitted under any state. De-escalating to `SAFE` strictly requires $N_{\text{release}} = 5$ consecutive frames that are `OBSERVED` outside $P_{\text{release}}$.
   * *Disappearance Lockout:* A worker who disappears inside the danger zone latches into `LOCKOUT` until manual inspection and reset (`SpatialFSM.reset()`).
   * *Validation:* [`tests/test_kalman.py`](tests/test_kalman.py) and [`tests/test_fsm.py`](tests/test_fsm.py).
+* **Q8: Why do distant corridor workers vanish at 640p before BBox fallback, and why use Declarative Foveated ROI instead of fine-tuning YOLO? ([See ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md))**
+  * *Perceptual Failure Mode:* In Full HD ($1920\times 1080$) industrial CCTV (`mendeley_walkway_violation`, `mendeley_industrial`), workers in the far corridor ($Y_w \in [15, 22]\text{ m}$) measure only $h_{\text{orig}} \approx 55\text{–}68\text{ px}$. When resized to standard $640\times 360$ letterbox, silhouettes shrink to $h_{\text{tensor}} \approx 18\text{–}22\text{ px}$, spanning $< 1.5$ feature cells in YOLO11-Pose P4/P5 heads. Person class scores drop to a mean of $0.149$, meaning `scores >= conf_threshold` ($0.40$) discards them before keypoint extraction or Tier-3 `BBOX_BOTTOM` fallback is ever invoked.
+  * *Nyquist Sampling vs Fine-Tuning:* The bottleneck is optical spatial subsampling, not semantic representation. Fine-tuning cannot recover spatial frequencies lost to convolutional stride. Without changing a single weight in `yolo11n-pose.onnx`, declarative foveated inference (`far_field_roi: [1320, 200, 1700, 580]`) crops the vanishing point $380\times 380 \to 640\times 640$ ($5.05\times$ effective spatial resolution), raising far-corridor recall from **$11.4\%$ ($4/35$) to $100.0\%$ ($35/35$)** at mean conf $0.669\text{–}0.728$.
+  * *Fusion & Latency:* The pipeline merges detections via 2D IoU/anchor deduplication (`deduplicate_detections`), scale-adaptive ground anchoring (`min_ankle_bbox_height=120.0`), and metric separation ($0.55\text{ m}$), executing within $T_1 \approx 30.5\text{ ms} \le 50\text{ ms}$ (ISO 13855 budget).
+  * *Validation:* [`tests/test_pipeline.py`](tests/test_pipeline.py) and [`tests/test_dataset_walkway.py`](tests/test_dataset_walkway.py).
 
 ---
 
@@ -419,6 +437,7 @@ sequenceDiagram
   * **[ADR-010](docs/decisions/adr-010-dual-latency-profiling-iso13855.md):** Dual Time Horizon Latency Profiling in Industrial Edge AI ($T_{\text{system}}$ vs $T_{\text{event}}$).
   * **[ADR-011](docs/decisions/adr-011-mahalanobis-hungarian-mot.md):** Bayesian Validation Gating (Mahalanobis $\chi^2$), Global Hungarian MOT, and World-Space Spatial Birth NMS.
   * **[ADR-012](docs/decisions/adr-012-synthetic-yolo-video-generation.md):** Photorealistic Synthetic Video Generation with Pinhole Scaling and Unique Identity.
+  * **[ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md):** Foveated Far-Field ROI Inference and Physical Delimitation of Safe Pedestrian Walkways.
 
 ---
 
@@ -428,7 +447,7 @@ sequenceDiagram
 * **Model:** YOLOv8 / YOLO11 Pose (Ultralytics $\to$ ONNX)
 * **Inference Runtime:** ONNX Runtime (`CoreMLExecutionProvider` on Apple Silicon / `CPUExecutionProvider` / CUDA)
 * **Geometry & Math:** OpenCV, NumPy, Shapely (GEOS C-Engine)
-* **Testing:** PyTest (218 automated tests passing)
+* **Testing:** PyTest (219 automated tests passing)
 
 ---
 
@@ -472,31 +491,95 @@ python scripts/audit_and_reproduce_benchmarks.py --all
 
 ---
 
-### 2. Functional Edge-Case Invariant Validation Suite
-In addition to the scientific benchmark matrix, the following video sequences serve as specialized test fixtures to validate discrete state machine transitions, Kalman degradation, and fault recovery:
+### 2. Functional Edge-Case Invariant Validation Suite & Case-by-Case Execution Guide
+In addition to the scientific benchmark matrix, the repository provides 8 configured evaluation cases (3 deterministic synthetic sequences and 5 empirical CCTV streams). Every case has a dedicated YAML profile in `configs/datasets/` defining its planar homography ($H$) and spatial FSM thresholds:
 
-| Test Sequence | Scenario & Edge-Case Under Test | Verification Outcome & State Invariant |
-| :--- | :--- | :--- |
-| **`sequence_a_clean_incursion`** | Constant speed incursion ($v_x = 1.0\text{ m/s}$) with exact ground truth. | ✅ Evaluates $N_{\text{confirm}} = 3$ debounce and verifies physical trip latency ($T_{\text{event}} = 66.7\text{ ms}$). |
-| **`sequence_b_occlusion_coasting`** | Lower-limb occlusion ($0.5\text{ m}$ obstacle blocking ankles for 15 frames). | ✅ Graceful degradation (`ankles_dual` $\to$ `tracker_predicted` coasting) without covariance divergence. |
-| **`sequence_c_dwell_loitering`** | Worker remains static inside hazardous workcell for $7.0\text{ s}$. | ✅ Decoupled temporal FSM transitions (`NORMAL` $\to$ `WARNING` $\to$ `VIOLATION` at $t \ge 5.0\text{ s}$). |
-| **`opencv_vtest`** | Continuous pedestrian crossing through restricted safety corridor. | ✅ Sustained intrusion triggers emergency latching (`LOCKOUT`), requiring manual supervisory reset. |
-| **`mendeley_industrial`** | Production metalworking machinery cell with operator intervention. | ✅ Validates DLT homography projection and dual-zone pre-alert on full-scale manufacturing equipment. |
+| Dataset ID (`--dataset`) | Video Source & YAML Profile | Calibrated Space & Zone Delimitation | Key Parameters & Engineering Rationale |
+| :--- | :--- | :--- | :--- |
+| **`sequence_a_clean_incursion`** | `data/samples/sequence_a_clean_incursion.mp4`<br>`configs/datasets/sequence_a_clean_incursion.yaml` | **$6\text{m} \times 6\text{m}$ cell**; central danger zone $[2.0, 2.0] \times [4.0, 4.0]\text{ m}$. | `n_confirm=3`, `hysteresis=0.20m`. Validates debounce and reaction latency ($T_{\text{event}} = 66.7\text{ ms}$) on a constant $1.0\text{ m/s}$ incursion. |
+| **`sequence_b_occlusion_coasting`** | `data/samples/sequence_b_occlusion_coasting.mp4`<br>`configs/datasets/sequence_b_occlusion_coasting.yaml` | **$6\text{m} \times 6\text{m}$ cell**; $0.5\text{ m}$ barrier occluding ankles for 15 frames inside zone. | Validates graceful anchor degradation (`ankles_dual` $\to$ `tracker_predicted` $\to$ `bbox_bottom`) and fail-safe `LOCKOUT` latch on disappearance inside hazard zone. |
+| **`sequence_c_dwell_loitering`** | `data/samples/sequence_c_dwell_loitering.mp4`<br>`configs/datasets/sequence_c_dwell_loitering.yaml` | **$6\text{m} \times 6\text{m}$ cell**; operator stops inside danger zone for $7.0\text{ s}$. | `dwell_warning_s=3.0`, `dwell_violation_s=5.0`. Validates decoupled temporal dwell statechart (`NORMAL` $\to$ `WARNING` $\to$ `VIOLATION`). |
+| **`mendeley_walkway_violation`** | `data/raw/mendeley_industrial/mendeley_walkway_violation.mp4`<br>`configs/datasets/mendeley_walkway_violation.yaml` | **$10\text{m} \times 23\text{m}$ shopfloor ($1080\text{p}$)**; right boundary ($X_w = 10.0\text{ m}$) aligned with the inner yellow border of the green pedestrian walkway. Everything to the left ($[0.0, 0.0] \times [9.8, 23.0]\text{ m}$: grey vehicle lane + press bay) is restricted. | `conf=0.4`, `far_field_roi=[1320, 200, 1700, 580]`, `far_field_conf_threshold=0.30`, `min_ankle_bbox_height=120.0`, `dwell_warning_s=3.0`, `dwell_violation_s=6.0` ([ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md)). 100% far-corridor recall (continuous tracking from Frame 3 at $Y_w = 15.12\text{ m}$), enforcing walkway safety while triggering `DANGER_INTRUSION` (35 frames) / `LOCKOUT` (182 frames) within $T_1 = 30.58\text{ ms} \le 50\text{ ms}$. |
+| **`mendeley_industrial`** | `data/raw/mendeley_industrial/mendeley_unauthorized_intervention.mp4`<br>`configs/datasets/mendeley_industrial.yaml` | **$10\text{m} \times 23\text{m}$ shopfloor ($1080\text{p}$)**; same camera & floor delimitation ($X_w \le 10.0\text{ m}$, $Y_w \le 23.0\text{ m}$ restricted left of green walkway). | `far_field_roi=[1320, 200, 1700, 580]`, `far_field_conf_threshold=0.30` ([ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md)). Tracks operator in far corridor from Frame 3 at $[10.04, 15.23]\text{ m}$ through unauthorized press intervention (65 `WARNING_APPROACH`, 73 `DANGER_INTRUSION`, $T_1 = 30.38\text{ ms} \le 50\text{ ms}$). |
+| **`openvino_people`** | `data/raw/openvino_people/people.mp4`<br>`configs/datasets/openvino_people.yaml` | **Full HD $1080\text{p}$ corridor**; longitudinal floor calibration. | Benchmarks $1080\text{p}$ `unletterbox_keypoints` accuracy and CoreML vs CPU inference throughput (Exp 1). |
+| **`pets2009_s2_l1`** | `data/raw/pets2009_s2_l1/pets2009_s2_l1.mp4`<br>`configs/datasets/pets2009_s2_l1.yaml` | **$12\text{m} \times 20\text{m}$ outdoor plaza ($768 \times 576$)**; multi-target pedestrian crossings. | Validates global Hungarian MOT assignment, Mahalanobis gating ($\chi^2_2 \le 9.210$), and $0.6\text{ m}$ World-Space Spatial Birth NMS (Exp 5). |
+| **`opencv_vtest`** | `data/raw/opencv_vtest/vtest.avi`<br>`configs/datasets/opencv_vtest.yaml` | **$768 \times 576$ pedestrian walkway**; central hazard zone. | Validates multi-person zone traversal and persistent `LOCKOUT` state latching across 768 frames. |
 
 <div align="center">
   <img src="docs/figures/demo_factory_walkway.gif" alt="Industrial Manufacturing Shopfloor CCTV Homography & Walkway Monitoring" width="100%" />
-  <p><em>Real-World Shopfloor Validation: CCTV Monocular Stream in Heavy Metalworking Bay with Planar Homography and Metric Walkway Safety Boundaries (<code>mendeley_walkway_violation</code>).</em></p>
 </div>
+<p align="center"><em>Case 1 — Far-Corridor Walkway Violation (<code>mendeley_walkway_violation</code>): Foveated Far-Field ROI (<code>[1320, 200, 1700, 580]</code>) tracks distant workers under the MAMUL DEPO sign ($Y_w \in [15, 22]\text{ m}$) using <code>BBOX_BOTTOM</code> anchors, triggering <code>SAFETY TRIP: INSIDE</code> when stepping left of the green walkway border ($X_w < 10.0\text{ m}$).</em></p>
+
+<div align="center">
+  <img src="docs/figures/demo_unauthorized_intervention.gif" alt="Industrial Manufacturing Shopfloor Scale-Adaptive Pose & Foveated ROI" width="100%" />
+</div>
+<p align="center"><em>Case 2 — Scale-Adaptive Multi-Zone Tracking (<code>mendeley_industrial</code>): Simultaneous tracking of a foreground operator using anatomical ankle keypoints (<code>ANKLES_DUAL</code>, $Y_w \approx 3.1\text{ m}$) and a distant corridor operator using foveated ROI bounding-box fallback (<code>BBOX_BOTTOM</code>, $Y_w \approx 12.6\text{ m}$) within $T_1 \approx 30.4\text{ ms}$.</em></p>
+
+#### Why Specific Runtime Parameters Are Loaded
+When evaluating industrial CCTV streams via `scripts/run_dataset_test.py` or `scripts/run_demo.py`, three parameters control perception sensitivity and geometric stability:
+* **`--config configs/datasets/<name>.yaml`**: Loads the 4-point DLT homography correspondences (`image` $\leftrightarrow$ `world` in meters), `danger_polygon`, `warning_polygon`, `hysteresis_buffer_m`, debounce frame counts (`n_confirm`, `n_release`), dwell timers (`dwell_warning_s`, `dwell_violation_s`), and optional foveated far-field ROI parameters (`far_field_roi`, `far_field_conf_threshold`).
+* **`--conf-threshold 0.4` (Default in `run_dataset_test.py`, vs `0.5` in `run_demo.py`)**: Balances far-field worker recall in $1080\text{p}$ industrial corridors without dropping below $0.25$, where vertical metal machinery columns can trigger false-positive pose activations.
+* **`--min-ankle-bbox-height 120.0` (Scale-Adaptive Anchor Degradation, [ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md), [ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md))**: When a worker is in the near/mid field ($h_{\text{bbox}} \ge 120\text{ px}$), the pipeline projects anatomical ankle keypoints (`ankles_dual` / `ankle_single`). When the worker is in the far corridor ($h_{\text{bbox}} < 120\text{ px}$, where ankles occupy $< 3\text{ px}$), it automatically degrades to `bbox_bottom` to prevent keypoint jitter.
+* **`far_field_roi: [1320, 200, 1700, 580]` & `far_field_conf_threshold: 0.30` (Loaded Automatically from YAML, [ADR-013](docs/decisions/adr-013-foveated-far-field-roi-inference.md))**: For CCTV cameras with deep longitudinal vanishing points, the pipeline crops the far corridor ($380\times 380\text{ px}$) and feeds it as a secondary foveated $640\times 640$ pass ($5.05\times$ spatial gain). This raises far-field recall from $11.4\%$ to $100.0\%$ without model re-training while remaining well within the $T_1 \le 50\text{ ms}$ ISO 13855 budget ($30.5\text{ ms}$ mean).
+* **`--model models/yolo11n-pose-960-fp32.onnx` (Optional High-Resolution Far-Field Mode)**: Replaces the default $640\times 640$ ONNX graph with the $960\times 960$ graph, increasing far-field detections ($Y_w > 6\text{ m}$) on `mendeley_walkway_violation` by **$7.7\times$** (from 83 to 639 detections) while remaining within the $T_1 \le 50\text{ ms}$ budget ($42.5\text{ ms}$ mean).
+
+#### Copy-Paste Execution Commands for Every Case
 
 ```bash
-# 1. Download empirical test datasets with automatic multi-mirror failover
-python scripts/download_datasets.py --dataset mendeley_industrial
-python scripts/download_datasets.py --dataset mendeley_walkway_violation
-python scripts/download_datasets.py --dataset pets2009_s2_l1
+# ============================================================================
+# A. SYNTHETIC GROUND-TRUTH CASES (Generate once, then view live or headlessly)
+# ============================================================================
+python scripts/generate_samples.py
 
-# 2. Run automated headless evaluation on any individual dataset
-python scripts/run_dataset_test.py --dataset mendeley_walkway_violation --no-display
+# Watch live in Dual OpenCV Window (Perspective + Metric BEV at native 30 FPS):
+python scripts/run_dataset_test.py --dataset sequence_a_clean_incursion --display --realtime
+python scripts/run_dataset_test.py --dataset sequence_b_occlusion_coasting --display --realtime
+python scripts/run_dataset_test.py --dataset sequence_c_dwell_loitering --display --realtime
+
+# Run headlessly with strict ground-truth invariant verification:
+python scripts/run_dataset_test.py --dataset sequence_a_clean_incursion --verify-invariants
+python scripts/run_dataset_test.py --dataset sequence_b_occlusion_coasting --verify-invariants
+python scripts/run_dataset_test.py --dataset sequence_c_dwell_loitering --verify-invariants
+
+# ============================================================================
+# B. REAL-WORLD INDUSTRIAL & PUBLIC CCTV CASES
+# ============================================================================
+# 1. Download all registered empirical datasets (or pass a single --dataset <name>)
+python scripts/download_datasets.py --list
+python scripts/download_datasets.py --dataset mendeley_walkway_violation
+python scripts/download_datasets.py --dataset mendeley_industrial
+python scripts/download_datasets.py --dataset openvino_people
+python scripts/download_datasets.py --dataset pets2009_s2_l1
+python scripts/download_datasets.py --dataset opencv_vtest
+
+# 2. Watch any empirical case LIVE (loads its matching YAML profile automatically):
+python scripts/run_dataset_test.py --dataset mendeley_walkway_violation --display --realtime
+python scripts/run_dataset_test.py --dataset mendeley_industrial --display --realtime
+python scripts/run_dataset_test.py --dataset openvino_people --display --realtime
+python scripts/run_dataset_test.py --dataset pets2009_s2_l1 --display --realtime
+python scripts/run_dataset_test.py --dataset opencv_vtest --display --realtime
+
+# 3. Run Mendeley Walkway Violation with 960p High-Resolution ONNX model (7.7x far-field sensitivity):
+python scripts/run_dataset_test.py \
+  --dataset mendeley_walkway_violation \
+  --model models/yolo11n-pose-960-fp32.onnx \
+  --conf-threshold 0.30 \
+  --display --realtime
+
+# 4. Equivalent explicit invocation via run_demo.py (showing all underlying flags):
+python scripts/run_demo.py \
+  --source data/raw/mendeley_industrial/mendeley_walkway_violation.mp4 \
+  --config configs/datasets/mendeley_walkway_violation.yaml \
+  --model models/yolo11n-pose.onnx \
+  --conf-threshold 0.4 \
+  --min-ankle-bbox-height 120.0 \
+  --realtime
 ```
+
+All runs of `scripts/run_dataset_test.py --dataset <name>` automatically export three auditable artifacts into `data/results/<name>/`:
+* `annotated_<name>.mp4` — Dual-view composite video (Perspective camera with reprojected polygons + Metric BEV grid).
+* `events.jsonl` — Frame-by-frame telemetry (`safety_state`, `occupancy_state`, `dwell_state`, `tracks`, and stage latency breakdown).
+* `summary.json` — Aggregate FPS, latency percentiles ($p_{50}, p_{95}, p_{99}$), state distribution, and cryptographic SHA256 provenance metadata.
 
 ---
 

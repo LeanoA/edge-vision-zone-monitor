@@ -13,6 +13,7 @@ from scripts.run_dataset_test import (
     DatasetTestConfig,
     DatasetTestRunner,
     DatasetTestSummary,
+    load_far_field_roi_from_yaml,
     load_zone_config_from_yaml,
 )
 from src.core.homography import HomographyManager
@@ -51,6 +52,10 @@ class TestWalkwayDatasetProfile:
         assert zone_cfg.dwell_warning_s == 3.0
         assert zone_cfg.dwell_violation_s == 6.0
         assert zone_cfg.iso_k_speed == 1.6
+
+        roi, roi_conf = load_far_field_roi_from_yaml(config_path)
+        assert roi == (1320, 200, 1700, 580)
+        assert roi_conf == pytest.approx(0.30)
 
     def test_homography_reprojection_accuracy(self, config_path: Path) -> None:
         """Verify DLT homography reprojection error is <= 0.05m tolerance."""
