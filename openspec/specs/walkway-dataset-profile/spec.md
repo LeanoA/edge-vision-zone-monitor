@@ -13,14 +13,16 @@ The system MUST provide a declarative YAML calibration profile for the `mendeley
    - MUST provide 4 coplanar ground reference points mapping pixel coordinates to metric coordinates $[X, Y]$ in meters.
    - Homography reprojection RMSE error MUST be $\le 0.05\text{ m}$.
    - Image points:
-     - Point 1 (bottom-left): $[250.0, 1020.0] \rightarrow [0.0, 0.0]\text{ m}$
-     - Point 2 (bottom-right): $[1680.0, 1020.0] \rightarrow [10.0, 0.0]\text{ m}$
-     - Point 3 (top-right): $[1400.0, 480.0] \rightarrow [10.0, 15.0]\text{ m}$
-     - Point 4 (top-left): $[520.0, 480.0] \rightarrow [0.0, 15.0]\text{ m}$
+     - Point 1 (bottom-left): $[100.0, 1020.0] \rightarrow [0.0, 0.0]\text{ m}$
+     - Point 2 (bottom-right): $[1684.0, 1020.0] \rightarrow [10.0, 0.0]\text{ m}$
+     - Point 3 (top-right): $[1515.0, 420.0] \rightarrow [10.0, 15.0]\text{ m}$
+     - Point 4 (top-left): $[320.0, 420.0] \rightarrow [0.0, 15.0]\text{ m}$
 
 3. **Restricted Zone & Safety Parameters**:
-   - `danger_polygon`: $[[2.5, 3.0], [7.5, 3.0], [7.5, 10.0], [2.5, 10.0]]$.
-   - `warning_polygon`: $[[1.8, 2.2], [8.2, 2.2], [8.2, 10.8], [1.8, 10.8]]$.
+   - `far_field_roi`: $[1320, 200, 1700, 580]$ (foveated crop around the far corridor under *MAMUL DEPO*).
+   - `far_field_conf_threshold`: $0.30$.
+   - `danger_polygon`: $[[0.0, 0.0], [9.8, 0.0], [9.8, 23.0], [0.0, 23.0]]$.
+   - `warning_polygon`: $[[-0.2, -0.2], [10.0, -0.2], [10.0, 23.2], [-0.2, 23.2]]$.
    - `hysteresis_buffer_m`: $0.20\text{ m}$.
    - `n_confirm`: 3 frames.
    - `n_release`: 5 frames.

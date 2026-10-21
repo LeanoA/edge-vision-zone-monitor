@@ -284,12 +284,67 @@ def extract_ankle_anchor(
         return None
 
 
+def _compute_bbox_iou(
+    box_a: Tuple[float, float, float, float],
+    box_b: Tuple[float, float, float, float],
+) -> float:
+    """Compute 2D Intersection-over-Union (IoU) between two (x1, y1, x2, y2) bounding boxes."""
+    ix1 = max(box_a[0], box_b[0])
+    iy1 = max(box_a[1], box_b[1])
+    ix2 = min(box_a[2], box_b[2])
+    iy2 = min(box_a[3], box_b[3])
+
+    inter_w = max(0.0, ix2 - ix1)
+    inter_h = max(0.0, iy2 - iy1)
+    inter_area = inter_w * inter_h
+    if inter_area <= 0.0:
+        return 0.0
+
+    area_a = max(0.0, box_a[2] - box_a[0]) * max(0.0, box_a[3] - box_a[1])
+    area_b = max(0.0, box_b[2] - box_b[0]) * max(0.0, box_b[3] - box_b[1])
+    union_area = area_a + area_b - inter_area
+    if union_area <= 0.0:
+        return 0.0
+    return float(inter_area / union_area)
+
+
+def deduplicate_detections(
+    detections: List[PoseDetection],
+    iou_threshold: float = 0.45,
+    anchor_dist_px: float = 18.0,
+) -> List[PoseDetection]:
+    """
+    Suppress duplicate detections (from multi-cell YOLO grid proposals or overlapping
+    full-frame + foveated far-field ROI passes) in descending order of anchor confidence.
+    """
+    if len(detections) <= 1:
+        return detections
+
+    sorted_dets = sorted(detections, key=lambda d: d.anchor_confidence, reverse=True)
+    kept: List[PoseDetection] = []
+    for cand in sorted_dets:
+        is_duplicate = False
+        for existing in kept:
+            if _compute_bbox_iou(cand.bbox, existing.bbox) >= iou_threshold:
+                is_duplicate = True
+                break
+            if cand.anchor is not None and existing.anchor is not None:
+                dx = cand.anchor[0] - existing.anchor[0]
+                dy = cand.anchor[1] - existing.anchor[1]
+                if (dx * dx + dy * dy) ** 0.5 <= anchor_dist_px:
+                    is_duplicate = True
+                    break
+        if not is_duplicate:
+            kept.append(cand)
+    return kept
+
+
 class SafetyPipeline:
     """
     Coordinates synchronous frame processing:
-    1. preprocess (letterbox 640x640)
+    1. preprocess (letterbox 640x640, plus optional foveated far-field ROI crop)
     2. inference (OnnxEngine)
-    3. keypoint_extract (YOLO Pose output parsing + ankle anchor extraction)
+    3. keypoint_extract (YOLO Pose output parsing + ankle anchor extraction + deduplication)
     4. projection (HomographyManager)
     5. tracking (MultiTargetKalmanTracker)
     6. fsm_evaluation (SpatialFSM)
@@ -304,6 +359,8 @@ class SafetyPipeline:
         conf_threshold: float = 0.5,
         min_ankle_bbox_height: float = 0.0,
         target_size: Optional[Tuple[int, int]] = None,
+        far_field_roi: Optional[Tuple[int, int, int, int]] = None,
+        far_field_conf_threshold: float = 0.30,
     ) -> None:
         self.engine = engine
         self.homography = homography
@@ -311,6 +368,12 @@ class SafetyPipeline:
         self.fsm = fsm
         self.conf_threshold = float(conf_threshold)
         self.min_ankle_bbox_height = float(min_ankle_bbox_height)
+        self.far_field_roi = (
+            (int(far_field_roi[0]), int(far_field_roi[1]), int(far_field_roi[2]), int(far_field_roi[3]))
+            if far_field_roi is not None and len(far_field_roi) == 4
+            else None
+        )
+        self.far_field_conf_threshold = float(far_field_conf_threshold)
         self._frame_id = 0
 
         if target_size is not None:
@@ -337,6 +400,8 @@ class SafetyPipeline:
         pad_y: float,
         orig_w: int,
         orig_h: int,
+        conf_threshold_override: Optional[float] = None,
+        offset_xy: Tuple[float, float] = (0.0, 0.0),
     ) -> List[PoseDetection]:
         """
         Parse raw YOLO Pose output tensor of shape (1, 56, 8400) or similar.
@@ -358,9 +423,12 @@ class SafetyPipeline:
         if raw.shape[0] < 5:
             return detections
 
+        eff_conf = float(conf_threshold_override) if conf_threshold_override is not None else self.conf_threshold
+        ox, oy = float(offset_xy[0]), float(offset_xy[1])
+
         # Check candidate proposals above confidence threshold
         scores = raw[4, :]
-        valid_indices = np.where(scores >= self.conf_threshold)[0]
+        valid_indices = np.where(scores >= eff_conf)[0]
         if len(valid_indices) == 0:
             return detections
 
@@ -371,7 +439,7 @@ class SafetyPipeline:
 
         for idx in valid_indices:
             cx, cy, bw, bh = raw[0, idx], raw[1, idx], raw[2, idx], raw[3, idx]
-            # Convert center bbox to top-left / bottom-right in original coordinates
+            # Convert center bbox to top-left / bottom-right in crop/original coordinates
             lx1 = cx - bw / 2.0
             ly1 = cy - bh / 2.0
             lx2 = cx + bw / 2.0
@@ -380,11 +448,11 @@ class SafetyPipeline:
             x1, y1 = unletterbox_point(lx1, ly1, scale, pad_x, pad_y)
             x2, y2 = unletterbox_point(lx2, ly2, scale, pad_x, pad_y)
 
-            # Clamp bbox
-            x1 = max(0.0, min(float(x1), float(orig_w)))
-            y1 = max(0.0, min(float(y1), float(orig_h)))
-            x2 = max(0.0, min(float(x2), float(orig_w)))
-            y2 = max(0.0, min(float(y2), float(orig_h)))
+            # Clamp bbox to local crop dimensions first, then shift by offset_xy
+            x1 = max(0.0, min(float(x1), float(orig_w))) + ox
+            y1 = max(0.0, min(float(y1), float(orig_h))) + oy
+            x2 = max(0.0, min(float(x2), float(orig_w))) + ox
+            y2 = max(0.0, min(float(y2), float(orig_h))) + oy
 
             # Keypoints: 17 * 3 = 51 values from row 5 to 55
             kps = np.zeros((17, 3), dtype=np.float32)
@@ -394,12 +462,15 @@ class SafetyPipeline:
 
             # Map keypoint coordinates from letterboxed canvas back to original frame space
             kps_orig = unletterbox_keypoints(kps, scale, pad_x, pad_y)
+            if ox != 0.0 or oy != 0.0:
+                kps_orig[..., 0] += ox
+                kps_orig[..., 1] += oy
 
             # Extract anchor with graceful degradation hierarchy using native frame coordinates
             extracted = extract_ground_anchor(
                 kps_orig,
                 bbox=(x1, y1, x2, y2),
-                conf_threshold=self.conf_threshold,
+                conf_threshold=eff_conf,
                 scale=1.0,
                 pad_x=0.0,
                 pad_y=0.0,
@@ -423,7 +494,7 @@ class SafetyPipeline:
                 )
             )
 
-        return detections
+        return deduplicate_detections(detections)
 
     def process_frame(
         self,
@@ -444,29 +515,60 @@ class SafetyPipeline:
 
             orig_h, orig_w = frame.shape[:2]
 
-            # Stage 1: Preprocess (Letterbox)
+            # Validated optional foveated far-field ROI bounds
+            roi_bounds: Optional[Tuple[int, int, int, int]] = None
+            if self.far_field_roi is not None:
+                rx1 = max(0, min(self.far_field_roi[0], orig_w - 1))
+                ry1 = max(0, min(self.far_field_roi[1], orig_h - 1))
+                rx2 = max(rx1 + 1, min(self.far_field_roi[2], orig_w))
+                ry2 = max(ry1 + 1, min(self.far_field_roi[3], orig_h))
+                if (rx2 - rx1) >= 16 and (ry2 - ry1) >= 16:
+                    roi_bounds = (rx1, ry1, rx2, ry2)
+
+            # Stage 1: Preprocess (Letterbox full frame + optional foveated ROI crop)
             t0 = time.perf_counter()
             tensor, scale, pad_x, pad_y = letterbox_image(frame, target_size=self.target_size)
+            if roi_bounds is not None:
+                rx1, ry1, rx2, ry2 = roi_bounds
+                roi_crop = frame[ry1:ry2, rx1:rx2]
+                roi_tensor, roi_scale, roi_pad_x, roi_pad_y = letterbox_image(
+                    roi_crop, target_size=self.target_size
+                )
             t_preprocess = (time.perf_counter() - t0) * 1000.0
 
             # Stage 2: Inference
             t0 = time.perf_counter()
             model_out = self.engine.infer(tensor)
+            roi_model_out = self.engine.infer(roi_tensor) if roi_bounds is not None else None
             t_infer = (time.perf_counter() - t0) * 1000.0
 
             # Stage 3: Keypoint & Detection Extraction
             t0 = time.perf_counter()
             detections = self.parse_detections(model_out, scale, pad_x, pad_y, orig_w, orig_h)
+            if roi_bounds is not None and roi_model_out is not None:
+                rx1, ry1, rx2, ry2 = roi_bounds
+                roi_detections = self.parse_detections(
+                    roi_model_out,
+                    roi_scale,
+                    roi_pad_x,
+                    roi_pad_y,
+                    rx2 - rx1,
+                    ry2 - ry1,
+                    conf_threshold_override=self.far_field_conf_threshold,
+                    offset_xy=(float(rx1), float(ry1)),
+                )
+                detections = deduplicate_detections(detections + roi_detections)
+
             # Collect ground anchors and metadata for homography projection
             valid_detections = [det for det in detections if det.anchor is not None]
             t_kp = (time.perf_counter() - t0) * 1000.0
 
-            # Stage 4: Homography Projection & PositionEstimate packaging
+            # Stage 4: Homography Projection & PositionEstimate packaging (with metric deduplication)
             t0 = time.perf_counter()
             if len(valid_detections) > 0:
                 anchors_arr = np.array([det.anchor for det in valid_detections], dtype=np.float64)
                 world_positions = self.homography.project_batch(anchors_arr, to_world=True)
-                position_estimates = [
+                raw_estimates = [
                     PositionEstimate(
                         xy_m=(float(world_positions[i, 0]), float(world_positions[i, 1])),
                         confidence=valid_detections[i].anchor_confidence,
@@ -474,6 +576,15 @@ class SafetyPipeline:
                     )
                     for i in range(len(valid_detections))
                 ]
+                # Deduplicate in metric space (0.55m minimum interpersonal separation)
+                raw_estimates.sort(key=lambda e: e.confidence, reverse=True)
+                position_estimates: List[PositionEstimate] = []
+                for est in raw_estimates:
+                    if not any(
+                        ((est.xy_m[0] - kept.xy_m[0]) ** 2 + (est.xy_m[1] - kept.xy_m[1]) ** 2) ** 0.5 < 0.55
+                        for kept in position_estimates
+                    ):
+                        position_estimates.append(est)
             else:
                 position_estimates = []
             t_proj = (time.perf_counter() - t0) * 1000.0

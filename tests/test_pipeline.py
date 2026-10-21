@@ -561,5 +561,87 @@ def test_pipeline_occlusion_confidence_propagation(synthetic_onnx_path):
     assert track.estimate.covariance is not None
 
 
+def test_foveated_far_field_roi_inference_and_deduplication(synthetic_onnx_path):
+    """
+    Verify SafetyPipeline executes foveated far_field_roi crop inference,
+    maps ROI coordinates back to native frame space, and deduplicates overlapping
+    full-frame + ROI detections in both pixel and metric space.
+    """
+    from unittest.mock import MagicMock
+    from src.core.homography import HomographyManager
+    from src.core.kalman_filter import MultiTargetKalmanTracker
+    from src.core.spatial_fsm import SpatialFSM, ZoneConfig
+    from src.inference.onnx_engine import OnnxEngine
+    from src.pipeline.safety_pipeline import SafetyPipeline, deduplicate_detections
+
+    engine = OnnxEngine(synthetic_onnx_path)
+    img_pts = np.array([[0, 0], [1920, 0], [1920, 1080], [0, 1080]], dtype=np.float64)
+    world_pts = np.array([[0, 0], [19.2, 0], [19.2, 10.8], [0, 10.8]], dtype=np.float64)
+    homography = HomographyManager(image_points=img_pts, world_points=world_pts)
+    tracker = MultiTargetKalmanTracker(dt=0.04, n_init=1)
+    zone_cfg = ZoneConfig(
+        name="danger",
+        danger_polygon=[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+    )
+    fsm = SpatialFSM(zone_cfg)
+
+    # Construct a synthetic YOLO output tensor where proposal #0 is at letterboxed (320, 320), w=60, h=120
+    # When inferred on full 1920x1080 frame, score is 0.15 (< 0.40 threshold -> missed).
+    # When inferred on 380x380 ROI crop [1320, 200, 1700, 580], score is 0.72 (>= 0.30 ROI threshold -> detected!).
+    full_out = np.zeros((1, 56, 10), dtype=np.float32)
+    full_out[0, 0:4, 0] = [320.0, 320.0, 20.0, 40.0]
+    full_out[0, 4, 0] = 0.15  # Missed in full-frame pass
+
+    roi_out = np.zeros((1, 56, 10), dtype=np.float32)
+    roi_out[0, 0:4, 0] = [320.0, 320.0, 60.0, 120.0]  # Center of 640x640 letterboxed 380x380 crop -> (190, 190) local
+    roi_out[0, 4, 0] = 0.72
+
+    engine.infer = MagicMock(side_effect=[full_out, roi_out])
+
+    pipeline = SafetyPipeline(
+        engine=engine,
+        homography=homography,
+        tracker=tracker,
+        fsm=fsm,
+        conf_threshold=0.40,
+        min_ankle_bbox_height=120.0,
+        far_field_roi=(1320, 200, 1700, 580),
+        far_field_conf_threshold=0.30,
+    )
+
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    result = pipeline.process_frame(frame)
+
+    assert engine.infer.call_count == 2
+    assert len(result.detections) == 1
+    det = result.detections[0]
+    # Center of [1320, 200, 1700, 580] is (1320 + 190, 200 + 190) = (1510, 390)
+    # Local height is 120 * (380/640) = 71.25 -> bottom y2 = 390 + 35.625 = 425.625
+    assert det.anchor is not None
+    assert det.anchor[0] == pytest.approx(1510.0, abs=1.5)
+    assert det.anchor[1] == pytest.approx(425.6, abs=1.5)
+    assert det.anchor_source == AnchorSource.BBOX_BOTTOM
+    assert len(result.tracks) == 1
+
+    # Also verify deduplicate_detections suppresses overlapping duplicate proposals
+    dup_a = PoseDetection(
+        bbox=(1500.0, 350.0, 1530.0, 425.0),
+        keypoints=np.zeros((17, 3), dtype=np.float32),
+        anchor=(1515.0, 425.0),
+        anchor_source=AnchorSource.BBOX_BOTTOM,
+        anchor_confidence=0.30,
+    )
+    dup_b = PoseDetection(
+        bbox=(1502.0, 352.0, 1532.0, 426.0),
+        keypoints=np.zeros((17, 3), dtype=np.float32),
+        anchor=(1517.0, 426.0),
+        anchor_source=AnchorSource.BBOX_BOTTOM,
+        anchor_confidence=0.22,
+    )
+    deduped = deduplicate_detections([dup_b, dup_a])
+    assert len(deduped) == 1
+    assert deduped[0].anchor_confidence == pytest.approx(0.30)
+
+
 
 
