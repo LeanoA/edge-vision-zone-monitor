@@ -141,6 +141,7 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
   * **Certificación vs Razonamiento:** Afirmar que un software en Python/ONNX "cumple ISO 13855" es un error conceptual grave. Una certificación de seguridad funcional exige redundancia de canal (categorías ISO 13849 PL d/e o IEC 61508 SIL 2/3), hardware calificado, análisis de modos de fallo (FMEA) y validación ante fallas sistemáticas.
   * **La Postura Técnica Correcta:** Presentar el proyecto como:
     > *Experimental vision-based intrusion monitoring system inspired by industrial safety-zone concepts and ISO 13855 safety-distance reasoning. Not a safety-rated protective device.*
+
 ### P14: ¿Qué significa exactamente que el sistema reporte que una persona está a 0.93 m del peligro?
 * **Fundamento de Metrología y Visión Computacional:**
   * **La Falsa Precisión:** En una auditoría técnica o revisión de arquitectura, responder "la homografía calculó que está a exactamente 93 centímetros" denota inmadurez en visión por computadora.
@@ -150,6 +151,7 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
     3. *Camera calibration error:* Incertidumbre de medición en los puntos coplanares de referencia ground-truth.
     4. *Ground-plane assumption:* Pequeñas desviaciones o desniveles del piso respecto a la hipótesis plana ideal $Z_w = 0$.
     5. *Homography numerical error:* Amplificación de perturbaciones gobernada por el número de condición matricial $\kappa(H)$, especialmente en zonas con ángulos rasantes.
+
 ### P15: ¿Qué hace el sistema cuando los pies del trabajador no se ven (oclusión por maquinaria) y qué es la propagación de confianza?
 * **Fundamento de Arquitectura y Modos de Fallo:**
   * **El Escenario Crítico:** En una planta industrial, es habitual que una máquina baja o un pallet oculte los pies de un trabajador mientras su torso se aproxima al peligro. Si el estimador de pose reporta `conf(left_ankle) = 0.12` y `conf(right_ankle) = 0.08`, ¿qué se hace?

@@ -189,6 +189,7 @@ This project serves as an experimental platform to rigorously resolve engineerin
 <div align="center">
   <img src="docs/figures/bbox_vs_ankles.png" alt="Ankle Contact vs BBox Base Centroid" width="85%" />
 </div>
+
 * **Q6: How does the system behave when feet or ankles are occluded by machinery or pallets? ([See ADR-007](docs/decisions/adr-007-occlusion-handling-confidence-propagation.md))**
   * *Failure Mode:* If machinery blocks an operator's feet, the pose model reports low confidence (`conf < 0.5`) on both ankles. Dropping detections creates a blind hazard; using low-confidence points injects catastrophic noise into the homography.
   * *Graceful Degradation Hierarchy:*
