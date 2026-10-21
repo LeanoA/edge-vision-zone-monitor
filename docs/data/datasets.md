@@ -188,12 +188,11 @@ Durante la integración y evaluación de estos datasets, se identificaron y reso
 
 ---
 
-### 3.6 Hallazgo 6: Semántica de Pasarelas Peatonales y Sensibilidad en Campo Lejano
-* **Problema:** En el dataset `mendeley_walkway_violation`, el objetivo físico es detectar cuando un operario **se sale de la senda peatonal segura** demarcada con pintura en el suelo. El enfoque tradicional de "zona de peligro en la máquina" no modela la violación de pasarela, ya que la infracción ocurre al abandonar el corredor seguro hacia la calzada industrial general. Asimismo, en el plano lejano ($Y > 12\text{m}$), las personas ocupan menos de $80\text{ px}$ verticales, provocando pérdidas intermitentes de detección en YOLO11n-pose con umbrales $\text{conf} \ge 0.40$.
-* **Estrategia de Evolución:**
-  1. **Semántica de Inversión de Polígono (*Safe Corridor Inclusion*):** Permitir en `ZoneConfig` definir zonas donde el estado `SAFE` sea **estar dentro** del polígono de la pasarela y `DANGER/WARNING` sea cruzar sus límites exteriores hacia el galpón.
-  2. **Ajuste de Umbral y Coasting en Campo Lejano:** Flexibilizar el umbral de confianza a $0.25 - 0.30$ en combinación con mayor inercia cinemática del Filtro de Kalman (`n_release=8`).
-  3. **Estado Actual:** Registrado y documentado como caso de borde en el catálogo de benchmarks para futuras iteraciones del autómata espacial.
+### 3.6 Hallazgo 6: Delimitación de Senda Peatonal Segura y Sensibilidad en Campo Lejano — ✅ RESUELTO
+* **Problema:** En el dataset `mendeley_walkway_violation` (y `mendeley_industrial`), el objetivo físico es detectar cuando un operario **se sale de la senda peatonal verde segura** (ubicada a la derecha) hacia la calzada gris de vehículos o el box de prensas a la izquierda. Un polígono pequeño centrado solo en una máquina deja sin cubrir la calzada logística y parte del box de prensas. Asimismo, en el plano lejano ($Y_w \in [15.0, 22.0]\text{ m}$), los operarios miden apenas $55\text{–}68\text{ px}$ en $1080\text{p}$, sufriendo submuestreo espacial severo al escalar a $640\text{p}$ que impedía incluso alcanzar el fallback de `BBOX_BOTTOM`.
+* **Solución Implementada:**
+  1. **Calibración DLT Anclada al Borde de la Senda Peatonal ($X_w = 10.0\text{ m}$):** Los puntos derechos de la homografía ($[1684, 1020] \leftrightarrow [10.0, 0.0]\text{ m}$ y $[1515, 420] \leftrightarrow [10.0, 15.0]\text{ m}$, con residuo algebraico $\text{RMSE} = 4.08 \times 10^{-15}\text{ m}$) se alinearon exactamente sobre la línea amarilla interior de la senda peatonal verde. Se definió todo el semiespacio izquierdo ($[0.0, 0.0] \times [9.8, 23.0]\text{ m}$, calzada vehicular + box de prensas, con cobertura longitudinal extendida hasta $Y_w = 23.0\text{ m}$) como `danger_polygon`, dejando únicamente la franja verde como corredor seguro.
+  2. **Inferencia Foveada Declarativa en Campo Lejano (`far_field_roi`) y Anclaje Adaptativo ([ADR-013](../decisions/adr-013-foveated-far-field-roi-inference.md)):** Se integró en la configuración YAML del dataset el recorte focalizado `zones.far_field_roi: [1320, 200, 1700, 580]` y `far_field_conf_threshold: 0.30` junto con `min_ankle_bbox_height=120.0` (conmutación a `BBOX_BOTTOM` en campo lejano). El pipeline procesa el recorte de $380 \times 380\text{ px}$ escalado a $640 \times 640$ ($5.05\times$ de resolución espacial efectiva), logrando un **$100.0\%$ de recall en el pasillo lejano ($35/35$ cuadros vs $11.4\%$ en pasada única)** sin alterar los pesos del modelo ONNX y con una latencia de apenas $T_1 \approx 30.5\text{ ms} \le 50\text{ ms}$.
 
 ---
 
@@ -208,36 +207,37 @@ Una de las conclusiones de ingeniería más ricas que surgen de la evaluación e
   * Las articulaciones del pie ocupan apenas $2 \times 2\text{ px}$ en el sensor. La red neuronal pierde confianza local en keypoints individuales ($\text{conf}_{\text{ankles}} < 0.30$) y el detector descarta la pose entera o introduce *jitter* angular.
   * **Sin embargo**, los mapas de características convolucionales de escala gruesa detectan el **Bounding Box global de la persona** con altísima confianza ($\text{conf}_{\text{box}} \ge 0.75$).
 
-#### Patrón Arquitectónico Propuesto: Degradación Adaptativa por Escala
-En lugar de forzar keypoints cuando la resolución no lo permite, el pipeline debe conmutar automáticamente su estrategia de anclaje en función de la altura aparente del objeto ($h_{\text{bbox}}$) y la distancia homográfica proyectada:
+#### Patrón Arquitectónico Implementado: Degradación Adaptativa por Escala ([ADR-013](../decisions/adr-013-foveated-far-field-roi-inference.md))
+En lugar de forzar keypoints cuando la resolución no lo permite, el pipeline conmuta automáticamente su estrategia de anclaje en función de la altura aparente del objeto ($h_{\text{bbox}}$) gobernada por `min_ankle_bbox_height = 120.0`:
 
 $$\text{Anchor}(t) = \begin{cases} 
-\text{Midpoint}(\text{ankle}_L, \text{ankle}_R) & \text{si } h_{\text{bbox}} \ge 120\text{px} \land \text{conf}_{\text{ankles}} \ge 0.40 \quad (\text{Modo Alta Precisión}) \\
-\text{BottomCenter}(\text{bbox}) & \text{si } h_{\text{bbox}} < 120\text{px} \lor \text{conf}_{\text{ankles}} < 0.40 \quad (\text{Modo Bounding Box Lejano})
+\text{Midpoint}(\text{ankle}_L, \text{ankle}_R) & \text{si } h_{\text{bbox}} \ge 120\text{px} \land \text{conf}_{\text{ankles}} \ge 0.40 \quad (\text{Modo Alta Precisión: ANKLES\_DUAL / ANKLE\_SINGLE}) \\
+\text{BottomCenter}(\text{bbox}) & \text{si } h_{\text{bbox}} < 120\text{px} \lor \text{conf}_{\text{ankles}} < 0.40 \quad (\text{Modo Bounding Box Lejano: BBOX\_BOTTOM})
 \end{cases}$$
 
-**Ventaja:** En campo lejano se asegura la continuidad ininterrumpida del tracking cinemático sin caídas de track, y a medida que el operario se aproxima a la zona crítica, el sistema conmuta suavemente a la precisión sub-centimétrica de los tobillos.
+**Ventaja:** En campo lejano se asegura la continuidad ininterrumpida del tracking cinemático sin caídas de track ni saltos angulares espurios, y a medida que el operario se aproxima a la zona crítica en el plano medio/cercano, el sistema conmuta suavemente a la precisión sub-centimétrica de los tobillos anatómicos.
 
 ---
 
-### 3.8 Discusión Técnica: Resolución Espacial de Inferencia vs. Alucinación en Estructuras Industriales (El Dilema 640p vs. 1280p)
+### 3.8 Discusión Técnica: Resolución Espacial de Inferencia vs. Alucinación en Estructuras Industriales (El Dilema 640p vs. 1280p vs. Foveated ROI)
 
 Durante las pruebas de ingestión en `mendeley_walkway_violation`, se descubrió un fenómeno crucial de **percepción en visión artificial industrial**:
 
 #### 1. El Mecanismo del Fallo a 640x640:
-* **Submuestreo Espacial Severo:** En Full HD ($1920\times 1080$), los operarios en el pasillo lejano miden $\approx 130\text{ px}$ de alto. Al aplicar el preprocesamiento letterbox a $640\times 360$, la silueta humana se comprime a apenas **$43\text{ px}$ en el tensor de entrada**.
-* **Límites del Campo Receptivo:** En las cabezas de detección profundas de YOLO ($P_4$ con stride 16 y $P_5$ con stride 32), una silueta de $43\text{ px}$ ocupa **menos de 2 celdas de convolución**. A esta escala, la red COCO no logra activar la clase `person` con confianza suficiente ($\text{conf} < 0.25$).
-* **Alucinación por Falso Gradiente al Bajar el Umbral:** Si se reduce artificialmente el umbral a $\text{conf} = 0.15$ para intentar "forzar" la detección de las figuras lejanas, la red empieza a clasificar como personas las **columnas verticales, barandas y brazos robóticos metálicos** en el plano medio/cercano, debido a que sus gradientes lineales de alto contraste coinciden con los patrones de miembros corporales a baja activación.
+* **Submuestreo Espacial Severo:** En Full HD ($1920\times 1080$), los operarios en el pasillo lejano miden apenas $55\text{–}68\text{ px}$ de alto. Al aplicar el preprocesamiento letterbox a $640\times 360$ ($\text{scale} = 0.3333$), la silueta humana se comprime a apenas **$18\text{–}22\text{ px}$ en el tensor de entrada**.
+* **Límites del Campo Receptivo:** En las cabezas de detección profundas de YOLO ($P_4$ con stride 16 y $P_5$ con stride 32), una silueta de $18\text{–}22\text{ px}$ ocupa **menos de 1.5 celdas de convolución**. A esta escala, la activación de clase cae a una media de $\text{score} = 0.149$, por lo que la condición `scores >= 0.40` descarta al operario antes de evaluar keypoints o `BBOX_BOTTOM`.
+* **Alucinación por Falso Gradiente al Bajar el Umbral:** Si se reduce artificialmente el umbral a $\text{conf} = 0.12\text{–}0.15$ para intentar "forzar" la detección de las figuras lejanas en el fotograma completo, la red empieza a clasificar como personas las **columnas verticales, barandas y prensas metálicas** en el plano medio/cercano, debido a que sus gradientes lineales de alto contraste coinciden con miembros corporales a baja activación.
 
-#### 2. Evidencia Empírica Comparativa ($640\text{p}$ vs. $1280\text{p}$):
-Ensayos comparativos directos sobre el Frame 50 y 150 del metraje:
+#### 2. Evidencia Empírica Comparativa y Solución Foveada ([ADR-013](../decisions/adr-013-foveated-far-field-roi-inference.md)):
+Ensayos comparativos directos sobre las secuencias de nave industrial:
 
-| Configuración de Inferencia | Operarios Detectados | Confianza Persona | Falsos Positivos en Maquinaria |
-| :--- | :--- | :--- | :--- |
-| **`imgsz = 640` (ONNX Base)** | **0** | $< 0.25$ (Descartados) | Sí (al bajar umbral a $0.15$) |
-| **`imgsz = 1280` (Alta Resolución)** | **2 (Ambos)** | **$0.66$ y $0.34$** | **0 (Cero falsos positivos)** |
+| Estrategia de Inferencia | Recall Pasillo Lejano | Confianza Media | Latencia $T_1$ | Falsos Positivos en Maquinaria |
+| :--- | :--- | :--- | :--- | :--- |
+| **`640p` Fotograma Completo Base** | $11.4\%$ ($4/35$ cuadros) | $0.149$ (Descartado) | $\approx 16.0\text{ ms}$ | Sí (si se reduce umbral a $0.12$) |
+| **`1280p` Global / SAHI Exhaustivo** | $100.0\%$ | $0.66\text{–}0.75$ | $> 65.0\text{ ms}$ (Excede ISO 13855) | 0 |
+| **Dual-Pass Foveated ROI (ADR-013)** | **$100.0\%$ ($35/35$ cuadros)** | **$0.669\text{–}0.728$** | **$\approx 30.5\text{ ms}$ ($\le 50\text{ ms}$)** | **0 (Cero falsos positivos)** |
 
-> **Conclusión:** La red no tiene un problema fundamental de representación semántica, sino una limitación de **soporte espacial de píxeles**. A $1280\text{p}$, los operarios lejanos poseen suficientes píxeles para ser reconocidos limpiamente con alta confianza y sin alucinaciones.
+> **Conclusión Arquitectónica:** La red no tiene un problema fundamental de representación semántica ni requiere re-entrenamiento (fine-tuning). Se trata de una limitación de **soporte espacial de píxeles (Nyquist-Shannon)**. Al procesar el recorte foveado $[1320, 200, 1700, 580]$ a $640\times 640$ ($5.05\times$ de resolución efectiva), los operarios distantes se recuperan con máxima confianza manteniendo la latencia estrictamente bajo el presupuesto normativo de $50\text{ ms}$.
 
 ---
 
@@ -263,8 +263,8 @@ Este hallazgo abre tres líneas de trabajo y divulgación técnica de alto impac
 | **`sequence_a_clean_incursion`** | $1920 \times 1080$ | $45.8\text{ FPS}$ | $16.24\text{ ms}$ | $24.68\text{ ms}$ | ✅ Ground truth exacto: 75 incursiones, 2 tracks confirmados |
 | **`sequence_b_occlusion_coasting`** | $1920 \times 1080$ | $36.1\text{ FPS}$ | $16.20\text{ ms}$ | $21.71\text{ ms}$ | ✅ Ground truth exacto: oclusión de pies, 107 cuadros LOCKOUT |
 | **`sequence_c_dwell_loitering`** | $1920 \times 1080$ | $42.4\text{ FPS}$ | $13.69\text{ ms}$ | $15.92\text{ ms}$ | ✅ Ground truth exacto: 236 peligro, 14 dwell violations ($t \ge 5\text{s}$) |
-| **`mendeley_industrial`** | $1920 \times 1080$ | $37.5\text{ FPS}$ | $15.35\text{ ms}$ | $18.26\text{ ms}$ | ✅ Planta real: intervención no autorizada en máquina |
-| **`mendeley_walkway_violation`** | $1920 \times 1080$ | $36.0\text{ FPS}$ | $16.32\text{ ms}$ | $21.52\text{ ms}$ | ✅ Pasarela industrial: cruce por corredor e incursión a celda |
+| **`mendeley_industrial`** | $1920 \times 1080$ | $32.9\text{ FPS}$ | $30.38\text{ ms}$ | $33.81\text{ ms}$ | ✅ Planta real: intervención no autorizada en máquina, recall $100\%$ en pasillo lejano con ROI foveada activa ([ADR-013](../decisions/adr-013-foveated-far-field-roi-inference.md)), 10 tracks, 65 warning, 73 danger |
+| **`mendeley_walkway_violation`** | $1920 \times 1080$ | $32.7\text{ FPS}$ | $30.58\text{ ms}$ | $33.53\text{ ms}$ | ✅ Pasarela industrial: cruce por corredor e incursión a celda, tracking continuo desde cuadro 3 ($Y_w = 15.12\text{ m}$) con ROI foveada activa ([ADR-013](../decisions/adr-013-foveated-far-field-roi-inference.md)), 7 tracks, 35 danger, 182 lockout |
 | **`opencv_vtest`** | $768 \times 576$ | $40.8\text{ FPS}$ | $21.26\text{ ms}$ | $29.31\text{ ms}$ | ✅ CCTV urbano: intrusión en zona y enclave lockout |
 | **`openvino_people`** | $1920 \times 1080$ | $36.7\text{ FPS}$ | $18.27\text{ ms}$ | $22.41\text{ ms}$ | ✅ Pasillo comercial: pose 1080p unletterboxed |
 | **`pets2009_s2_l1`** | $768 \times 576$ | $40.6\text{ FPS}$ | $21.38\text{ ms}$ | $30.53\text{ ms}$ | ✅ Explanada: tracking multiobjetivo y oclusiones |

@@ -76,6 +76,25 @@ Este documento recopila las discusiones técnicas, preguntas fundamentales y fun
   * Sin embargo, si en planta se calibran $N = 8$ puntos a lo largo del perímetro de un rectángulo (ej. 3 puntos en el borde inferior), esos 3 puntos *son* colineales entre sí. Rechazar la calibración por tener un triplete colineal sería un error de diseño (falso rechazo).
   * **Regla Arquitectónica:** Para $N = 4$, ningún triplete puede ser colineal. Para $N > 4$, la condición necesaria y suficiente es que el rango afín sea pleno ($\text{rank}=3$) y que **exista al menos un subconjunto de 4 puntos en posición general** (ningún triplete colineal en ese cuadrilátero).
 
+### P18: ¿Por qué una persona lejana (o en el borde superior derecho bajo el cartel MAMUL DEPO) no llega siquiera al fallback de Bounding Box, y por qué la Inferencia Foveada por ROI supera al re-entrenamiento de YOLO?
+* **Contexto de Percepción y Modos de Fallo:** En cámaras CCTV industriales con perspectiva profunda (como `mendeley_walkway_violation` y `mendeley_industrial`), los operarios que caminan al fondo del corredor (bajo el cartel *MAMUL DEPO*, a distancias métricas $Y_w \in [15.0, 22.0]\text{ m}$) miden apenas $h_{\text{orig}} \approx 55\text{–}68\text{ px}$ de altura vertical en el cuadro nativo de $1920 \times 1080$.
+* **Fundamento Técnico (El Cuello de Botella Óptico y la Jerarquía de Filtrado):**
+  1. **Por qué `BBOX_BOTTOM` jamás fue alcanzado:**
+     * Al reescalar el fotograma completo mediante `letterbox_image` de $1920 \times 1080 \to 640 \times 360$ ($\text{scale} = 0.3333$), la silueta humana se comprime a apenas $h_{\text{tensor}} \approx 18\text{–}22\text{ px}$.
+     * En las cabezas de detección profunda de YOLO11-Pose ($P_4$ con stride 16 y $P_5$ con stride 32), una figura de $18\text{–}22\text{ px}$ abarca menos de $1.5$ celdas de características, colapsando el gradiente convolucional de activación.
+     * En `SafetyPipeline.parse_detections`, el vector de confianza de clase persona `raw[4, :]` arroja una media de apenas $0.149$ (solo $4$ de cada $35$ cuadros superan $0.30$).
+     * Debido a que el filtro de confianza `scores >= self.conf_threshold` ($0.40$) se ejecuta **antes** de procesar keypoints o activar `extract_ground_anchor`, las propuestas huérfanas se descartan en la etapa de detección 2D. La degradación jerárquica a `BBOX_BOTTOM` nunca llega a invocarse porque el detector ni siquiera reconoció la presencia de un candidato.
+  2. **Por qué el Fine-Tuning de YOLO es la Herramienta Errónea:**
+     * El problema no radica en los pesos neuronales ni en una falta de representación semántica (la red conoce perfectamente la anatomía humana), sino en el **Teorema de Muestreo de Nyquist-Shannon espacial**: no se puede reconstruir una estructura que ha sido submuestreada por debajo del período de muestreo de la grilla convolucional.
+     * **Prueba Empírica Irrefutable:** Utilizando **exactamente el mismo archivo de pesos `models/yolo11n-pose.onnx` sin modificar un solo parámetro**, la detección en el pasillo lejano pasó de un paupérrimo **$11.4\%$ ($4/35$ cuadros, conf media $0.149$) a un perfecto $100.0\%$ ($35/35$ cuadros, conf media $0.669\text{–}0.728$)** cuando se le suministró el recorte foveado. El re-entrenamiento no puede crear fotones ni píxeles donde el stride convolucional los destruye.
+  3. **La Solución Arquitectónica (Inferencia Foveada Declarativa + Anclaje Adaptativo):**
+     * Se define de forma declarativa en el YAML de la cámara un recorte óptico focalizado en el punto de fuga (`zones.far_field_roi: [1320, 200, 1700, 580]`).
+     * El parche foveado de $380 \times 380\text{ px}$ se reescala a $640 \times 640$ ($\text{scale} \approx 1.684\times$), obteniendo una **ganancia efectiva de resolución espacial de $5.05\times$** ($1.684 / 0.3333$).
+     * Las coordenadas locales se reproyectan sumando $(rx_1, ry_1)$ y se fusionan mediante `deduplicate_detections` ($\text{IoU} \ge 0.45$ o distancia $\le 18\text{ px}$).
+     * Para operarios distantes ($h_{\text{bbox}} < 120\text{ px}$), el sistema conmuta automáticamente a `BBOX_BOTTOM`, eliminando el jitter de keypoints microscópicos.
+     * Tras la proyección homográfica $H$, se aplica deduplicación métrica en el plano del suelo ($d_{\text{metric}} < 0.55\text{ m}$), integrando el rastro en el tracker de Kalman con una latencia total de **$T_1 \approx 30.5\text{ ms}$**, preservando íntegro el presupuesto de seguridad de ISO 13855 ($50\text{ ms}$).
+* **Detalle Completo:** Ver [ADR-013](../decisions/adr-013-foveated-far-field-roi-inference.md).
+
 ---
 
 ## 3. Dinámica Temporal & Seguridad Funcional
